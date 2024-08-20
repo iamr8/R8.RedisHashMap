@@ -1,3 +1,9 @@
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Linq;
+using System.Linq.Expressions;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 using StackExchange.Redis;
 
@@ -11,66 +17,77 @@ namespace R8.RedisHashMap
         /// If key does not exist, a new key holding a hash is created.
         /// </summary>
         /// <param name="db">The redis database.</param>
-        /// <param name="key">The key of the hash.</param>
-        /// <param name="hashModel">The hash model to set.</param>
+        /// <param name="cacheKey">The key of the hash.</param>
+        /// <param name="model">The hash model to set.</param>
+        /// <param name="cacheableContext"></param>
         /// <param name="flags">The flags to use for this operation.</param>
         /// <remarks><seealso href="https://redis.io/commands/hmset"/></remarks>
-        public static Task HashSetAsync<T>(this IDatabaseAsync db, RedisKey key, T hashModel, CommandFlags flags = CommandFlags.None) where T : class, IRedisHashMap
+        public static void HashSet<TModel>(this IDatabase db, RedisKey cacheKey, TModel model, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var hashEntries = hashModel.GetHashEntries();
-            return db.HashSetAsync(key, hashEntries, flags);
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            if (model is IDictionary dictionary)
+            {
+                typeInfo.HashSetByDictionary(db, cacheKey, dictionary, flags);
+            }
+            else if (model is IEnumerable enumerable)
+            {
+                throw new NotImplementedException();
+            }
+            else
+            {
+                typeInfo.HashSetByModel(db, cacheKey, model, flags);
+            }
         }
 
-        /// <summary>
-        /// Sets the specified fields to their respective values in the hash stored at key.
-        /// This command overwrites any specified fields that already exist in the hash, leaving other unspecified fields untouched.
-        /// If key does not exist, a new key holding a hash is created.
-        /// </summary>
-        /// <param name="db">The redis database.</param>
-        /// <param name="key">The key of the hash.</param>
-        /// <param name="hashModel">The hash model to set.</param>
-        /// <param name="flags">The flags to use for this operation.</param>
-        /// <remarks><seealso href="https://redis.io/commands/hmset"/></remarks>
-        public static void HashSet<T>(this IDatabase db, RedisKey key, T hashModel, CommandFlags flags = CommandFlags.None) where T : class, IRedisHashMap
+        public static Task HashSetAsync<TModel>(this IDatabase db, RedisKey cacheKey, TModel model, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var hashEntries = hashModel.GetHashEntries();
-            db.HashSet(key, hashEntries, flags);
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            if (model is IDictionary dictionary)
+            {
+                return typeInfo.HashSetByDictionaryAsync(db, cacheKey, dictionary, flags);
+            }
+            else if (model is IEnumerable enumerable)
+            {
+                throw new NotImplementedException();
+            }
+            else
+            {
+                return typeInfo.HashSetByModelAsync(db, cacheKey, model, flags);
+            }
         }
 
-        /// <summary>
-        /// Returns the values associated with the specified fields in the hash stored at key.
-        /// For every field that does not exist in the hash, a nil value is returned.Because a non-existing keys are treated as empty hashes, running HMGET against a non-existing key will return a list of nil values.
-        /// </summary>
-        /// <param name="db">The redis database.</param>
-        /// <param name="key">The key of the hash.</param>
-        /// <param name="flags">The flags to use for this operation.</param>
-        /// <returns>A model with values associated with the given fields.</returns>
-        /// <remarks><seealso href="https://redis.io/commands/hmget"/></remarks>
-        public static T HashGetAll<T>(this IDatabase db, RedisKey key, CommandFlags flags = CommandFlags.None) where T : class, IRedisHashMap, new()
+        public static TModel HashGet<TModel>(this IDatabase db, RedisKey cacheKey, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var hashModel = new T();
-            var fields = hashModel.GetHashFields();
-            var values = db.HashGet(key, fields, flags);
-            hashModel.Init(fields, values);
-            return hashModel;
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            if (typeof(IDictionary).IsAssignableFrom(typeof(TModel)))
+            {
+                return typeInfo.HashGetByDictionary(db, cacheKey, Array.Empty<RedisValue>(), flags);
+            }
+            else if (typeof(IEnumerable).IsAssignableFrom(typeof(TModel)))
+            {
+                throw new NotImplementedException();
+            }
+            else
+            {
+                return typeInfo.HashGetByModel(db, cacheKey, Array.Empty<RedisValue>(), flags);
+            }
         }
 
-        /// <summary>
-        /// Returns the values associated with the specified fields in the hash stored at key.
-        /// For every field that does not exist in the hash, a nil value is returned.Because a non-existing keys are treated as empty hashes, running HMGET against a non-existing key will return a list of nil values.
-        /// </summary>
-        /// <param name="db">The redis database.</param>
-        /// <param name="key">The key of the hash.</param>
-        /// <param name="flags">The flags to use for this operation.</param>
-        /// <returns>A task that represents the asynchronous operation. The task result contains the model with values associated with the given fields.</returns>
-        /// <remarks><seealso href="https://redis.io/commands/hmget"/></remarks>
-        public static async Task<T> HashGetAllAsync<T>(this IDatabaseAsync db, RedisKey key, CommandFlags flags = CommandFlags.None) where T : class, IRedisHashMap, new()
+        public static Task<TModel> HashGetAsync<TModel>(this IDatabase db, RedisKey cacheKey, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var hashModel = new T();
-            var fields = hashModel.GetHashFields();
-            var values = await db.HashGetAsync(key, fields, flags);
-            hashModel.Init(fields, values);
-            return hashModel;
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            if (typeof(TModel) == typeof(IDictionary))
+            {
+                return typeInfo.HashGetByDictionaryAsync(db, cacheKey, Array.Empty<RedisValue>(), flags);
+            }
+            else if (typeof(TModel).IsAssignableFrom(typeof(IEnumerable)))
+            {
+                throw new NotImplementedException();
+            }
+            else
+            {
+                return typeInfo.HashGetByModelAsync(db, cacheKey, Array.Empty<RedisValue>(), flags);
+            }
         }
     }
 }
