@@ -1,11 +1,10 @@
-﻿using System.Security.Cryptography;
+﻿using System.Buffers;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Configs;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using StackExchange.Redis;
-using R8.RedisHashMap;
 
 namespace R8.RedisHashMap.Test
 {
@@ -34,6 +33,7 @@ namespace R8.RedisHashMap.Test
             //             ["countryOfResidence"] = "Turkey",
             //             ["age"] = "34",
             //         },
+            //         Duration = TimeSpan.FromDays(1)
             //     },
             //     [2] = new UserDto
             //     {
@@ -44,6 +44,7 @@ namespace R8.RedisHashMap.Test
             //         Mobile = "09123456789",
             //         Roles = [UserRoleType.Admin, UserRoleType.User],
             //         Tags = ["developer"],
+            //         Duration = TimeSpan.FromMinutes(1)
             //     }
             // }, CustomCacheableContext.Default);
             // stopWatch.Stop();
@@ -65,6 +66,7 @@ namespace R8.RedisHashMap.Test
             //         ["countryOfResidence"] = "Turkey",
             //         ["age"] = "34",
             //     },
+            //     Duration = TimeSpan.FromDays(1)
             // }, CustomCacheableContext.Default);
             // stopWatch.Stop();
             // Console.WriteLine($"HashSet with Model: {stopWatch.ElapsedMilliseconds}ms");
@@ -79,15 +81,18 @@ namespace R8.RedisHashMap.Test
             // stopWatch.Stop();
             // Console.WriteLine($"HashGet with Dictionary: {stopWatch.ElapsedMilliseconds}ms");
 
-            var summary = BenchmarkRunner.Run<CacheBenchmark>();
+            BenchmarkRunner.Run<CacheBenchmark>();
         }
     }
 
     [MemoryDiagnoser(false)]
+    // [SimpleJob(RuntimeMoniker.Net60)]
+    // [SimpleJob(RuntimeMoniker.Net80)]
+    [SimpleJob(RuntimeMoniker.Net90)]
     [ThreadingDiagnoser]
     public class CacheBenchmark
     {
-        private UserDto model;
+        private UserDto[] models;
         private ConnectionMultiplexer connectionMultiplexer;
         private IDatabase database;
 
@@ -96,45 +101,55 @@ namespace R8.RedisHashMap.Test
         {
             connectionMultiplexer = ConnectionMultiplexer.Connect("localhost");
             database = connectionMultiplexer.GetDatabase();
-            model = new UserDto
-            {
-                Id = 1,
-                FirstName = "Arash",
-                LastName = "Shabbeh",
-                Email = "arash.shabbeh@gmail.com",
-                Mobile = "09123456789",
-                Roles = [UserRoleType.Admin, UserRoleType.User],
-                Tags = ["super-admin", "moderator", "super-user", "developer"],
-                Data = new Dictionary<string, string>
+            models = Enumerable.Range(0, 1000)
+                .Select(x => new UserDto
                 {
-                    ["nationality"] = "Iranian",
-                    ["countryOfResidence"] = "Turkey",
-                    ["age"] = "34",
-                },
-            };
+                    Id = x,
+                    FirstName = "Arash",
+                    LastName = "Shabbeh",
+                    Email = "arash.shabbeh@gmail.com",
+                    Mobile = "09123456789",
+                    Age = 34,
+                    Roles = new[] { UserRoleType.Admin, UserRoleType.User },
+                    Tags = new[] { "super-admin", "moderator", "super-user", "developer" },
+                    Data = new Dictionary<string, string>
+                    {
+                        ["nationality"] = "Iranian",
+                        ["countryOfResidence"] = "Turkey",
+                        ["age"] = "34",
+                    },
+                }).ToArray();
         }
 
         [Benchmark(Baseline = true)]
-        public void HMSET_Plain()
+        public void HMSET_1000()
         {
-            var hashEntries = new HashEntry[]
+            foreach (var model in models)
             {
-                new HashEntry("Id", model.Id),
-                new HashEntry("FirstName", model.FirstName),
-                new HashEntry("LastName", model.LastName),
-                new HashEntry("Email", model.Email),
-                new HashEntry("Mobile", model.Mobile),
-                new HashEntry("Roles", JsonSerializer.Serialize(model.Roles, CustomCacheableContext.Default.UserRoleTypeArray)),
-                new HashEntry("Tags", JsonSerializer.Serialize(model.Tags, CustomCacheableContext.Default.StringArray)),
-                new HashEntry("Data", JsonSerializer.Serialize(model.Data, CustomCacheableContext.Default.DictionaryStringString)),
-            };
-            database.HashSet("set-plain", hashEntries, CommandFlags.None);
+                var hashEntries = new HashEntry[]
+                {
+                    new HashEntry("Id", model.Id),
+                    new HashEntry("FirstName", (RedisValue)model.FirstName),
+                    new HashEntry("LastName", (RedisValue)model.LastName),
+                    new HashEntry("Email", (RedisValue)model.Email),
+                    new HashEntry("Mobile", (RedisValue)model.Mobile),
+                    new HashEntry("Age", model.Age),
+                    new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, CustomCacheableContext.Default.Options)),
+                    new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, CustomCacheableContext.Default.Options)),
+                    new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, CustomCacheableContext.Default.Options)),
+                };
+                database.HashSet("set-plain", hashEntries, CommandFlags.None);
+            }
         }
 
         [Benchmark]
-        public void HMSET_Source()
+        public void HMSET_1000_SourceGeneration()
         {
-            database.HashSet("set-source", model, CustomCacheableContext.Default, CommandFlags.None);
+            foreach (var model in models)
+            {
+                var hashEntries = model.GetHashEntries(CustomCacheableContext.Default.Options);
+                database.HashSet("set-source", hashEntries, CommandFlags.None);
+            }
         }
     }
 }

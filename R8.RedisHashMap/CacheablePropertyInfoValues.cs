@@ -18,22 +18,18 @@ namespace R8.RedisHashMap
         /// <summary>
         /// Provides a mechanism to get the property or field's value.
         /// </summary>
-        public Func<object, T>? Getter { get; set; }
+        public Func<object, RedisValue>? Getter { get; set; }
 
         /// <summary>
         /// Provides a mechanism to set the property or field's value.
         /// </summary>
-        public Action<object, T>? Setter { get; set; }
+        public Action<object, RedisValue>? Setter { get; set; }
 
         /// <summary>
         /// The name of the property or field.
         /// </summary>
-        public string PropertyName { get; set; } = null!;
-        
-        public Type ValueType { get; set; } = null!;
+        public RedisValue FieldName { get; set; }
 
-        public RedisValueConverter? Converter { get; set; }
-        public Func<T, RedisValue>? Generator { get; set; }
-        public Func<RedisValue, T>? Parser { get; set; }
+        public Type ValueType { get; set; } = null!;
     }
 }

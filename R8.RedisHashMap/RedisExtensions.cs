@@ -24,7 +24,7 @@ namespace R8.RedisHashMap
         /// <remarks><seealso href="https://redis.io/commands/hmset"/></remarks>
         public static void HashSet<TModel>(this IDatabase db, RedisKey cacheKey, TModel model, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException($"CacheableContext for Type {typeof(TModel).Name} not found.");
             if (model is IDictionary dictionary)
             {
                 typeInfo.HashSetByDictionary(db, cacheKey, dictionary, flags);
@@ -41,7 +41,7 @@ namespace R8.RedisHashMap
 
         public static Task HashSetAsync<TModel>(this IDatabase db, RedisKey cacheKey, TModel model, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException($"CacheableContext for Type {typeof(TModel).Name} not found.");
             if (model is IDictionary dictionary)
             {
                 return typeInfo.HashSetByDictionaryAsync(db, cacheKey, dictionary, flags);
@@ -58,7 +58,7 @@ namespace R8.RedisHashMap
 
         public static TModel HashGet<TModel>(this IDatabase db, RedisKey cacheKey, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException($"CacheableContext for Type {typeof(TModel).Name} not found.");
             if (typeof(IDictionary).IsAssignableFrom(typeof(TModel)))
             {
                 return typeInfo.HashGetByDictionary(db, cacheKey, Array.Empty<RedisValue>(), flags);
@@ -75,7 +75,7 @@ namespace R8.RedisHashMap
 
         public static Task<TModel> HashGetAsync<TModel>(this IDatabase db, RedisKey cacheKey, ICacheableContext cacheableContext, CommandFlags flags = CommandFlags.None) where TModel : class
         {
-            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException();
+            var typeInfo = cacheableContext.GetTypeInfo(typeof(TModel)) as CacheableTypeInfo<TModel> ?? throw new InvalidOperationException($"CacheableContext for Type {typeof(TModel).Name} not found.");
             if (typeof(TModel) == typeof(IDictionary))
             {
                 return typeInfo.HashGetByDictionaryAsync(db, cacheKey, Array.Empty<RedisValue>(), flags);

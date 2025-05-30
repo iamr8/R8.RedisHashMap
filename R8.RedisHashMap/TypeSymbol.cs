@@ -1,0 +1,517 @@
+using System;
+using System.Collections;
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
+using System.Linq;
+using System.Text;
+using System.Text.Json;
+using Microsoft.CodeAnalysis;
+
+namespace R8.RedisHashMap
+{
+    [DebuggerDisplay("{" + nameof(GetDebuggerDisplay) + "(),nq}")]
+    public class TypeSymbol : IEquatable<TypeSymbol>
+    {
+        private TypeSymbol(ITypeSymbol type, ISymbol? symbol, bool isNullable)
+        {
+            Type = type;
+            Symbol = symbol;
+
+            IsPropertyOrField = symbol != null;
+            IsValueType = type.IsValueType;
+            IsPrimitiveType = IsValueType && (type.SpecialType == SpecialType.System_Boolean ||
+                                              type.SpecialType == SpecialType.System_Char ||
+                                              type.SpecialType == SpecialType.System_SByte ||
+                                              type.SpecialType == SpecialType.System_Byte ||
+                                              type.SpecialType == SpecialType.System_Int16 ||
+                                              type.SpecialType == SpecialType.System_UInt16 ||
+                                              type.SpecialType == SpecialType.System_Int32 ||
+                                              type.SpecialType == SpecialType.System_UInt32 ||
+                                              type.SpecialType == SpecialType.System_Int64 ||
+                                              type.SpecialType == SpecialType.System_UInt64 ||
+                                              type.SpecialType == SpecialType.System_Decimal ||
+                                              type.SpecialType == SpecialType.System_Single ||
+                                              type.SpecialType == SpecialType.System_Double);
+            IsMemory = type.Name.Equals("ReadOnlyMemory", StringComparison.Ordinal);
+            IsEnum = IsValueType && type.TypeKind == TypeKind.Enum;
+            IsReferenceType = type.IsReferenceType;
+            IsString = IsReferenceType && type.SpecialType == SpecialType.System_String;
+            IsNullable = isNullable;
+            IsArray = type is IArrayTypeSymbol;
+            IsCollection = type.AllInterfaces.Any(x => x.Name.Equals(nameof(ICollection), StringComparison.Ordinal) ||
+                                                       x.SpecialType == SpecialType.System_Collections_Generic_ICollection_T);
+            IsList = type.AllInterfaces.Any(x => x.Name.Equals(nameof(IList), StringComparison.Ordinal) ||
+                                                 x.SpecialType == SpecialType.System_Collections_Generic_IList_T);
+            IsDictionary = type.AllInterfaces.Any(x => x.Name.Equals(nameof(IDictionary), StringComparison.Ordinal));
+            IsJsonDocument = IsReferenceType && type.Name.Equals(nameof(JsonDocument), StringComparison.Ordinal);
+            IsJsonElement = IsValueType && type.Name.Equals(nameof(JsonElement), StringComparison.Ordinal);
+
+            EnumUnderlyingType = IsEnum ? ((INamedTypeSymbol)Type).EnumUnderlyingType : null;
+
+            if (IsArray)
+            {
+                var arrayType = (IArrayTypeSymbol)type;
+                Arguments = new[] { Create(arrayType.ElementType) }.ToImmutableArray();
+            }
+            else if (type is INamedTypeSymbol nts && nts.TypeArguments.Length > 0)
+            {
+                Arguments = nts.TypeArguments.Select(Create).ToImmutableArray();
+            }
+            else
+            {
+                Arguments = ImmutableArray<TypeSymbol>.Empty;
+            }
+        }
+
+        public static TypeSymbol Create(ITypeSymbol typeSymbol)
+        {
+            if (typeSymbol is { IsValueType: true, IsUnmanagedType: true } && typeSymbol.Name.Equals(nameof(Nullable), StringComparison.Ordinal))
+            {
+                if (typeSymbol is INamedTypeSymbol nts)
+                {
+                    var genericType = nts.TypeArguments[0];
+                    return new TypeSymbol(genericType, null, true);
+                }
+                else
+                {
+                    throw new NotSupportedException($"Cannot convert {typeSymbol} to {typeof(TypeSymbol)}");
+                }
+            }
+            else
+            {
+                var isNullable = TryGetNullableUnderlyingType(typeSymbol, out var underlyingTypeSymbol);
+                return new TypeSymbol(isNullable ? underlyingTypeSymbol! : typeSymbol, null, isNullable);
+            }
+        }
+
+        public static TypeSymbol Create(ISymbol symbol)
+        {
+            var typeSymbol = GetTypeSymbol(symbol);
+            if (typeSymbol is { IsValueType: true, IsUnmanagedType: true } && typeSymbol.Name.Equals(nameof(Nullable), StringComparison.Ordinal))
+            {
+                if (typeSymbol is INamedTypeSymbol nts)
+                {
+                    var genericType = nts.TypeArguments[0];
+                    return new TypeSymbol(genericType, symbol, true);
+                }
+                else
+                {
+                    throw new NotSupportedException($"Cannot convert {typeSymbol} to {typeof(TypeSymbol)}");
+                }
+            }
+            else
+            {
+                var isNullable = TryGetNullableUnderlyingType(typeSymbol, out var underlyingTypeSymbol);
+                return new TypeSymbol(isNullable ? underlyingTypeSymbol! : typeSymbol, symbol, isNullable);
+            }
+        }
+
+        public ISymbol? Symbol { get; }
+        public ITypeSymbol Type { get; }
+
+        public ITypeSymbol? EnumUnderlyingType { get; }
+
+        public ImmutableArray<TypeSymbol> Arguments { get; }
+
+        public bool IsPropertyOrField { get; }
+        public bool IsNullable { get; }
+
+        /// <inheritdoc cref="ITypeSymbol.IsValueType"/>
+        public bool IsValueType { get; }
+
+        public bool IsPrimitiveType { get; }
+
+        public bool IsEnum { get; }
+        public bool IsMemory { get; }
+
+        /// <inheritdoc cref="ITypeSymbol.IsReferenceType"/>
+        public bool IsReferenceType { get; }
+
+        public bool IsString { get; }
+        public bool IsArray { get; }
+        public bool IsCollection { get; }
+        public bool IsList { get; }
+        public bool IsDictionary { get; }
+        public bool IsJsonDocument { get; }
+        public bool IsJsonElement { get; }
+
+
+        public static ITypeSymbol GetTypeSymbol(ISymbol symbol)
+        {
+            return symbol switch
+            {
+                IPropertySymbol ps => ps.Type,
+                IFieldSymbol fs => fs.Type,
+                _ => null
+            };
+        }
+
+        public string GetDisplayName()
+        {
+            var sb = new StringBuilder();
+            if (this.IsNullable)
+            {
+                sb.Append("Nullable");
+            }
+
+            sb.Append(this.Type.Name);
+
+            if (this.Arguments.Length > 0)
+            {
+                foreach (var argument in this.Arguments)
+                {
+                    sb.Append(argument.GetDisplayName());
+                }
+            }
+
+            if (this.IsArray)
+            {
+                sb.Append("Array");
+            }
+
+            return sb.ToString();
+        }
+
+        public bool TryGetConverter([NotNullWhen(true)] out ConverterTypeSymbol? converter)
+        {
+            if (this.Symbol != null)
+            {
+                converter = ConverterTypeSymbol.GetConverter(this);
+                if (converter != null)
+                    return true;
+            }
+            else
+            {
+                converter = null;
+            }
+
+            return false;
+        }
+
+        public static bool TryGetNullableUnderlyingType(ITypeSymbol typeSymbol, out ITypeSymbol? underlyingTypeSymbol)
+        {
+            if (typeSymbol.Name.Equals(nameof(Nullable), StringComparison.Ordinal))
+            {
+                if (typeSymbol is INamedTypeSymbol namedTypeSymbol)
+                {
+                    if (namedTypeSymbol.TypeArguments.Length == 1)
+                    {
+                        underlyingTypeSymbol = namedTypeSymbol.TypeArguments[0];
+                        return true;
+                    }
+                }
+            }
+            else if (typeSymbol.NullableAnnotation == NullableAnnotation.Annotated)
+            {
+                underlyingTypeSymbol = typeSymbol.WithNullableAnnotation(NullableAnnotation.NotAnnotated);
+                return true;
+            }
+
+            underlyingTypeSymbol = null;
+            return false;
+        }
+
+        public string? GetProperty(ISymbol contextSymbol, ISymbol propertySymbol)
+        {
+            var propertyIdentifier = $"obj.{propertySymbol.Name}";
+            var valueIdentifier = $"value_{propertySymbol.Name}";
+            var typeIdentifier = $"{this.Type}{(this.IsNullable ? "?" : "")}";
+
+            var content = GetContent(propertySymbol);
+
+            var declareLocalVariable = $@"{typeIdentifier} {valueIdentifier} = {propertyIdentifier};
+                ";
+            if (this.IsPrimitiveType)
+            {
+                if (this.TryGetConverter(out var _))
+                {
+                    return null;
+                }
+
+                if (this.IsNullable)
+                {
+                    return declareLocalVariable + $@"if ({valueIdentifier}.HasValue)
+                    {{
+                        {content}
+                    }}";
+                }
+                else
+                {
+                    return declareLocalVariable + $@"{{
+                    {content}
+                }}";
+                }
+            }
+            else if (this.IsEnum)
+            {
+                if (this.TryGetConverter(out var _))
+                {
+                    return null;
+                }
+                else
+                {
+                    if (this.IsNullable)
+                    {
+                        return declareLocalVariable + @$"if ({valueIdentifier}.HasValue)
+                {{
+                    {content}
+                }}";
+                    }
+                    else
+                    {
+                        return declareLocalVariable + $@"{{
+                    {content}
+                }}";
+                    }
+                }
+            }
+            else if (this.IsMemory && this.Arguments.Length > 0)
+            {
+                return declareLocalVariable + $@"if ({valueIdentifier}.Length > 0)
+                {{
+                    {content}
+                }}";
+            }
+            else if (this.IsJsonElement)
+            {
+                if (this.IsNullable)
+                {
+                    return declareLocalVariable + $@"if ({valueIdentifier}.HasValue && {valueIdentifier}.Value.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.Value.ValueKind != JsonValueKind.Null)
+                {{
+                    {content}
+                }}";
+                }
+                else
+                {
+                    return declareLocalVariable + $@"if ({valueIdentifier}.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.ValueKind != JsonValueKind.Null)
+                {{
+                    {content}
+                }}";
+                }
+            }
+            else if (this.IsValueType) // User-defined struct
+            {
+                if (this.IsNullable)
+                {
+                    if (this.TryGetConverter(out var converter))
+                    {
+                        return declareLocalVariable + $@"if ({valueIdentifier}.HasValue)
+                {{
+                    {content}
+                }}";
+                    }
+                    else
+                    {
+                        return declareLocalVariable + $@"if ({valueIdentifier}.HasValue)
+                {{
+                    {content}
+                }}";
+                    }
+                }
+                else
+                {
+                    if (this.TryGetConverter(out var converter))
+                    {
+                        return declareLocalVariable + $@"{{
+                    {content}
+                }}";
+                    }
+                    else
+                    {
+                        return declareLocalVariable + $@"{{
+                    {content}
+                }}";
+                    }
+                }
+            }
+            else if (this.IsString)
+            {
+                return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
+                {{
+                    {content}
+                }}";
+            }
+            else if (this.IsJsonDocument)
+            {
+                return declareLocalVariable + @$"if ({valueIdentifier} != {(this.IsNullable ? "null" : "default")} && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Null)
+                {{
+                    {content}
+                }}";
+            }
+            else if (this is { IsArray: true, Arguments: { Length: 1 } } && this.Arguments[0].Type.SpecialType == SpecialType.System_Byte)
+            {
+                return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
+                {{
+                    {content}
+                }}";
+            }
+            else if (this.IsReferenceType) // User-defined class
+            {
+                if (this.IsArray)
+                {
+                    return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
+                {{
+                    {content}
+                }}";
+                }
+                else if (this.IsDictionary || this.IsCollection || this.IsList)
+                {
+                    return declareLocalVariable + $@"if ({valueIdentifier} is {{ Count: > 0 }})
+                {{
+                    {content}
+                }}";
+                }
+                else
+                {
+                    return declareLocalVariable + $@"if ({valueIdentifier} != {(this.IsNullable ? "null" : "default")})
+                {{
+                    {content}
+                }}";
+                }
+            }
+
+            return null;
+        }
+
+        private string? GetContent(ISymbol propertySymbol)
+        {
+            var fieldIdentifier = $"field_{propertySymbol.Name}";
+            var valueIdentifier = $"value_{propertySymbol.Name}";
+            const string setter = "entries[++index] = ";
+
+            if (this.IsPrimitiveType)
+            {
+                if (this.TryGetConverter(out var _))
+                {
+                    // return $"static value => {prop.ConverterTypeSymbol}.Default.ConvertToRedisValue(value)";
+                    return null;
+                }
+                else
+                {
+                    return $@"{setter}new HashEntry({fieldIdentifier}, (RedisValue){valueIdentifier}{(this.IsNullable ? ".Value" : "")});";
+                }
+            }
+            else if (this.IsEnum)
+            {
+                if (this.TryGetConverter(out var _))
+                {
+                    return null;
+                }
+                else
+                {
+                    return $"{setter}new HashEntry({fieldIdentifier}, (RedisValue)({this.EnumUnderlyingType}){valueIdentifier}{(this.IsNullable ? ".Value" : "")});";
+                }
+            }
+            else if (this.IsMemory && this.Arguments.Length > 0)
+            {
+                return $@"{setter}new HashEntry({fieldIdentifier}, (RedisValue){valueIdentifier});";
+            }
+            else if (this.IsJsonElement)
+            {
+                return $@"RedisValue redis_{propertySymbol.Name} = SerializeJsonElement(bufferWriter, {valueIdentifier}{(this.IsNullable ? ".Value" : "")});
+                    {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
+            else if (this.IsValueType) // User-defined struct
+            {
+                if (this.IsNullable)
+                {
+                    if (this.TryGetConverter(out var converter))
+                    {
+                        return $@"{converter.ConverterType} converter_{converter.ConverterName} = new {converter.ConverterType}();
+                    RedisValue redis_{propertySymbol.Name} = converter_{converter.ConverterName}.ConvertToRedisValue({valueIdentifier}.Value);
+                    if (!redis_{propertySymbol.Name}.IsNullOrEmpty)
+                    {{
+                        {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});
+                    }}";
+                    }
+                    else
+                    {
+                        return $@"RedisValue redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}.Value, serializerOptions);
+                    {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});";
+                    }
+                }
+                else
+                {
+                    if (this.TryGetConverter(out var converter))
+                    {
+                        return $@"{converter.ConverterType} converter_{converter.ConverterName} = new {converter.ConverterType}();
+                    RedisValue redis_{propertySymbol.Name} = converter_{converter.ConverterName}.ConvertToRedisValue({valueIdentifier});
+                    if (!redis_{propertySymbol.Name}.IsNullOrEmpty)
+                    {{
+                        {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});
+                    }}";
+                    }
+                    else
+                    {
+                        return $@"RedisValue redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, serializerOptions);
+                    {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});";
+                    }
+                }
+            }
+            else if (this.IsString)
+            {
+                return $@"RedisValue redis_{propertySymbol.Name} = SerializeString(bufferWriter, {valueIdentifier});
+                    {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
+            else if (this.IsJsonDocument)
+            {
+                return @$"RedisValue redis_{propertySymbol.Name} = SerializeJsonElement(bufferWriter, {valueIdentifier}.RootElement);
+                    {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
+            else if (this is { IsArray: true, Arguments: { Length: 1 } } && this.Arguments[0].Type.SpecialType == SpecialType.System_Byte)
+            {
+                return $@"{setter}new HashEntry({fieldIdentifier}, (RedisValue){valueIdentifier});";
+            }
+            else if (this.IsReferenceType) // User-defined class
+            {
+                return $@"RedisValue redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, serializerOptions);
+                    {setter}new HashEntry({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
+
+            return null;
+        }
+
+        public override string ToString()
+        {
+            return Type.ToString();
+        }
+
+        public string GetDebuggerDisplay()
+        {
+            var sb = new StringBuilder();
+            sb.Append('(');
+            sb.Append(Type);
+            sb.Append(')');
+            if (this.Symbol != null)
+                sb.Append(Symbol.Name);
+            return sb.ToString();
+        }
+
+        public bool Equals(TypeSymbol other)
+        {
+            return SymbolEqualityComparer.Default.Equals(Symbol, other.Symbol) &&
+                   SymbolEqualityComparer.Default.Equals(Type, other.Type);
+        }
+
+        public override bool Equals(object? obj)
+        {
+            return obj is TypeSymbol other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            return HashCode.Combine(Symbol, Type);
+        }
+
+        public static bool operator ==(TypeSymbol left, TypeSymbol right)
+        {
+            return left.Equals(right);
+        }
+
+        public static bool operator !=(TypeSymbol left, TypeSymbol right)
+        {
+            return !left.Equals(right);
+        }
+    }
+}

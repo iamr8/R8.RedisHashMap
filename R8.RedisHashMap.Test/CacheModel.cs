@@ -1,13 +1,13 @@
 using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using R8.RedisHashMap;
 using StackExchange.Redis;
 
 namespace R8.RedisHashMap.Test;
 
 [CacheableOptions(IncludeFields = false, IncludePrivate = false)]
-[CacheableConverter(typeof(TimeSpanCacheableConverter))]
 public partial class CacheModel : ICacheable
 {
     private string _stringField;
@@ -23,6 +23,8 @@ public partial class CacheModel : ICacheable
     public int? IntNullableProp { get; set; }
 
     [CacheablePropertyName("enumProp")] public MyEnum EnumProp { get; set; }
+
+    [JsonPropertyName("enumNullableProp")]
     public MyEnum? EnumNullableProp { get; set; }
     public MyEnum[] EnumArrayProp { get; set; }
     public CacheModel? CacheModelProp { get; set; }
@@ -125,22 +127,4 @@ public enum MyEnum
     Value1,
     Value2,
     Value3
-}
-
-public class TimeSpanCacheableConverter : ICacheableConverter<TimeSpan>
-{
-    public TimeSpan InitObject(RedisValue value)
-    {
-        if (value.IsInteger)
-        {
-            return global::System.TimeSpan.FromTicks((long)value);
-        }
-
-        return global::System.TimeSpan.Parse(value);
-    }
-
-    public RedisValue Read(TimeSpan value)
-    {
-        throw new NotImplementedException();
-    }
 }
