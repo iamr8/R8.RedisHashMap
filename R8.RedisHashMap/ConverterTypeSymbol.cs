@@ -21,21 +21,30 @@ namespace R8.RedisHashMap
 
         private static string GetName(string name)
         {
-            if (name.EndsWith("Converter"))
+            var name2 = name;
+            if (name2.EndsWith("Converter"))
             {
-                name = name.Split("Converter")[0];
+                name2 = name2.Split("Converter")[0];
             }
 
-            if (name.StartsWith("RedisValue"))
+            if (name2.StartsWith("RedisValue"))
             {
-                name = name.Split("RedisValue")[1];
+                name2 = name2.Split("RedisValue")[1];
             }
             else if (name.StartsWith("Redis"))
             {
-                name = name.Split("Redis")[1];
+                name2 = name2.Split("Redis")[1];
             }
 
-            return name;
+            if (name2.EndsWith("Redis"))
+            {
+                name2 = name2.Split("Redis")[0];
+            }
+
+            if (string.IsNullOrEmpty(name2))
+                return name;
+
+            return name2;
         }
 
         public static ConverterTypeSymbol? GetConverter(TypeSymbol propertySymbol)

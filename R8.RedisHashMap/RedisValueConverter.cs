@@ -7,17 +7,11 @@ namespace R8.RedisHashMap
     {
     }
 
-    public class RedisValueConverter<T> : RedisValueConverter, IRedisValueConverter<T>
+    public abstract class RedisValueConverter<T> : RedisValueConverter, IRedisValueConverter<T>
     {
-        public virtual RedisValue ConvertToRedisValue(T value)
-        {
-            throw new InvalidOperationException("This class must be inherited.");
-        }
+        public abstract RedisValue ConvertToRedisValue(T value);
 
-        public virtual T ConvertFromRedisValue(RedisValue value)
-        {
-            throw new InvalidOperationException("This class must be inherited.");
-        }
+        public abstract T ConvertFromRedisValue(RedisValue value);
     }
 
     public interface IRedisValueConverter<T>

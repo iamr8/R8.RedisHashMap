@@ -2,7 +2,7 @@ using StackExchange.Redis;
 
 namespace R8.RedisHashMap.Test;
 
-public partial class StringRedisConverter : RedisValueConverter<string>
+public class StringRedisConverter : RedisValueConverter<string>
 {
     public override RedisValue ConvertToRedisValue(string value)
     {

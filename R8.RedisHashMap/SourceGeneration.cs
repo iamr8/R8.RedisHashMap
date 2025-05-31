@@ -18,7 +18,8 @@ namespace R8.RedisHashMap
     public class SourceGeneration : IIncrementalGenerator
     {
         // private static readonly List<string> GeneratedTypes = new List<string>();
-        private static readonly string Namespace = typeof(SourceGeneration).Namespace!;
+        private static readonly string SourceGeneratorNamespace = typeof(SourceGeneration).Namespace!;
+        private static readonly string SourceGeneratorVersion = typeof(SourceGeneration).Assembly.GetName().Version!.ToString();
 
         public void Initialize(IncrementalGeneratorInitializationContext context)
         {
@@ -31,43 +32,34 @@ namespace R8.RedisHashMap
             context.RegisterSourceOutput(provider, Execute);
         }
 
-        private void Execute(SourceProductionContext ctx, (Compilation Left, ImmutableArray<(ClassDeclarationSyntax Class, ISymbol Symbol, List<ITypeSymbol> TypeContexts)?> Right) tuple)
+        private void Execute(SourceProductionContext ctx, (Compilation Left, ImmutableArray<TypeSymbolOptions?> Right) tuple)
         {
             var allConverters = new List<ConverterTypeSymbol>();
-            foreach (var right in tuple.Right)
+            foreach (var typeOptions in tuple.Right)
             {
-                if (right is null)
+                if (typeOptions == null)
                     continue;
 
-                var (classDeclaration, contextSymbol, typeContexts) = right.Value;
-                if (typeContexts.Count == 0)
+                var typeSymbol = typeOptions.TypeSymbol;
+                var typeFullQualifiedName = typeSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
+                var props = GetPropertySymbols(typeSymbol);
+                if (props.Length == 0)
                     continue;
 
-                var typeFullQualifiedName = contextSymbol.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
-                // GenerateCacheableContext(ctx, typeFullQualifiedName, contextSymbol);
-                // GenerateGetCacheableTypeInfo(ctx, typeFullQualifiedName, contextSymbol, typeContexts);
-                foreach (var objectTypeSymbol in typeContexts)
+                var objectType = TypeSymbol.Create(typeSymbol);
+                if (objectType.Converter != null && !allConverters.Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, objectType.Converter!.ConverterType)))
+                    allConverters.Add(objectType.Converter);
+
+                if (props.Length > 0)
                 {
-                    var props = GetPropertySymbols(objectTypeSymbol);
-                    if (props.Length == 0)
-                        continue;
-
-                    var objectType = TypeSymbol.Create(objectTypeSymbol);
-
-                    if (objectType.TryGetConverter(out var oc) && !allConverters.Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, oc!.ConverterType)))
-                        allConverters.Add(oc);
-
-                    if (props?.Any() == true)
+                    foreach (var prop in props)
                     {
-                        foreach (var prop in props)
-                        {
-                            if (prop.TryGetConverter(out var pc) && !allConverters.Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, pc!.ConverterType)))
-                                allConverters.Add(pc);
-                        }
+                        if (prop.TryGetConverter(out var pc) && !allConverters.Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, pc!.ConverterType)))
+                            allConverters.Add(pc);
                     }
-
-                    GenerateExtensionSource(ctx, typeFullQualifiedName, contextSymbol, objectType, props.ToImmutableArray());
                 }
+
+                GenerateExtensionSource(ctx, typeFullQualifiedName, typeOptions, objectType, props.ToImmutableArray());
             }
 
             if (allConverters.Count > 0)
@@ -77,7 +69,7 @@ namespace R8.RedisHashMap
                     GenerateConverterSource(ctx, converter);
                 }
             }
-            
+
             // var assembly = this.GetType().Assembly.GetName();
             // [CodeDom.Compiler.GeneratedCodeAttribute(""{assembly.Name}"", ""{assembly.Version}"")] 
         }
@@ -89,7 +81,7 @@ namespace R8.RedisHashMap
 
 namespace {converterSymbol.ConverterType.ContainingNamespace}
 {{
-    public partial class {converterSymbol.ConverterType.Name}
+    public class {converterSymbol.ConverterType.Name}Instance
     {{
         internal static readonly {converterSymbol.ConverterType.Name} Default = new {converterSymbol.ConverterType.Name}();
     }}
@@ -110,13 +102,14 @@ namespace {converterSymbol.ConverterType.ContainingNamespace}
             //     Location.None));
         }
 
-        private static void GenerateExtensionSource(SourceProductionContext ctx, string context, ISymbol contextSymbol, TypeSymbol objectType, ImmutableArray<TypeSymbol> propertyTypes)
+        private static void GenerateExtensionSource(SourceProductionContext ctx, string context, TypeSymbolOptions modelTypeOptions, TypeSymbol objectType, ImmutableArray<TypeSymbol> propertyTypes)
         {
             var displayName = objectType.GetDisplayName();
-            var sourceText = SourceText.From($@"// Context: {context}
-// Original source: {objectType.Type}
+            var sourceText = SourceText.From($@"// Original source: {objectType.Type}
 // <auto-generated/>
-#nullable enable
+
+#nullable enable annotations
+#nullable disable warnings
 
 using System;
 using System.Buffers;
@@ -126,15 +119,16 @@ using System.Runtime.CompilerServices;
 
 using StackExchange.Redis;
 
-namespace {contextSymbol.ContainingNamespace}
+namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
 {{
+    [global::System.CodeDom.Compiler.GeneratedCodeAttribute(""{SourceGeneratorNamespace}"", ""{SourceGeneratorVersion}"")]
     public static class {displayName}Extensions
     {{
-        {GetHashEntries(contextSymbol, objectType, propertyTypes)}
+        {GetHashEntries(modelTypeOptions, objectType, propertyTypes)}
     }}
 }}", Encoding.UTF8);
 
-            var fileName = $"{contextSymbol.ContainingNamespace}.{displayName}.g.cs";
+            var fileName = $"{modelTypeOptions.TypeSymbol.ContainingNamespace}.{displayName}.g.cs";
 
             ctx.AddSource(fileName, sourceText);
             // ctx.ReportDiagnostic(Diagnostic.Create(
@@ -148,9 +142,9 @@ namespace {contextSymbol.ContainingNamespace}
             //     Location.None));
         }
 
-        private static string GetHashEntries(ISymbol contextSymbol, TypeSymbol objectType, ImmutableArray<TypeSymbol> propertyTypes)
+        private static string GetHashEntries(TypeSymbolOptions modelTypeOptions, TypeSymbol objectType, ImmutableArray<TypeSymbol> propertyTypes)
         {
-            var langCode = new StringBuilder();
+            var contextSymbol = modelTypeOptions.TypeSymbol;
             if (objectType is { IsDictionary: true, Type: INamedTypeSymbol nts })
             {
                 var keyArgType = TypeSymbol.Create(nts.TypeArguments[0]);
@@ -172,26 +166,14 @@ namespace {contextSymbol.ContainingNamespace}
 //
 //             return entries;
 //         }}");
+                return null;
             }
             else
             {
-                langCode.Append(@$"{GetFields(propertyTypes)}
-
+                return @$"{GetFields(modelTypeOptions, propertyTypes)}
         private static readonly ArrayPool<HashEntry> arrayPool = ArrayPool<HashEntry>.Create({propertyTypes.Length}, 1_000);
         private static readonly Encoding encoding = Encoding.UTF8;
         private static readonly HashEntry[] emptyArray = Array.Empty<HashEntry>();
-        
-        [ThreadStatic]
-        private static ArrayBufferWriter<byte> _reusableByteBufferWriter;
-
-        [ThreadStatic]
-        private static Utf8JsonWriter _reusableJsonWriter;
-
-        private static readonly JsonWriterOptions ReusableJsonWriterOptions = new JsonWriterOptions
-        {{
-            Indented = false,
-            SkipValidation = false
-        }};
 
         public static HashEntry[] GetHashEntries(this {objectType} obj, JsonSerializerOptions? serializerOptions = null)
         {{
@@ -199,30 +181,11 @@ namespace {contextSymbol.ContainingNamespace}
             Span<HashEntry> entriesSpan = entries.AsSpan();
             int index = -1;
 
-            // TODO: Initialize buffer only if needed
             ArrayBufferWriter<byte> bufferWriter = GetReusableBufferWriter();
 
             try
             {{
-                {string.Join(@$"
-                
-                ", propertyTypes.Select((propertyType, i) =>
-                {
-                    // var parser = GetParser(objectTypeSymbol, property);
-                    var propertySymbol = propertyType.Symbol;
-                    var wrapper = propertyType.GetProperty(contextSymbol, propertySymbol!);
-                    if (wrapper != null)
-                    {
-                        return wrapper;
-                    }
-                    else
-                    {
-                        // stringBuilder.Append($"obj.{propertySymbol!.Name}");
-                    }
-
-                    return $"throw new NotSupportedException($\"Cannot convert `{propertyType.Type}` to `RedisValue` for `{propertySymbol}`.\");";
-                }))}
-
+                {WriteContents(propertyTypes, out var hasSerializeJson, out var hasSerializeString, out var hasSerializeJsonElement)}
                 if (index == -1)
                     return emptyArray;
 
@@ -238,6 +201,9 @@ namespace {contextSymbol.ContainingNamespace}
             }}
         }}
 
+        [ThreadStatic]
+        private static ArrayBufferWriter<byte> _reusableByteBufferWriter;
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ArrayBufferWriter<byte> GetReusableBufferWriter()
         {{
@@ -248,8 +214,59 @@ namespace {contextSymbol.ContainingNamespace}
                 _reusableByteBufferWriter = writer;
             }}
             return writer;
-        }}
- 
+        }}{AddSerializeJson(hasSerializeJson)}{AddSerializeString(hasSerializeString)}{AddSerializeJsonElement(hasSerializeJsonElement)}";
+            }
+        }
+
+        private static string AddSerializeJsonElement(bool hasSerializeJsonElement)
+        {
+            if (!hasSerializeJsonElement)
+                return string.Empty;
+
+            return @"
+        
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static RedisValue SerializeJsonElement(ArrayBufferWriter<byte> bufferWriter, JsonElement value)
+        {
+            return (RedisValue)value.GetBytesFromBase64();
+        }";
+        }
+
+        private static string AddSerializeString(bool hasSerializeString)
+        {
+            if (!hasSerializeString)
+                return string.Empty;
+
+            return @"
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private static RedisValue SerializeString(ArrayBufferWriter<byte> bufferWriter, ReadOnlySpan<char> value)
+        {
+            bufferWriter.Clear();
+            int byteCount = Encoding.UTF8.GetByteCount(value);
+            Span<byte> bytes = bufferWriter.GetSpan(byteCount);
+            int bytesWritten = Encoding.UTF8.GetBytes(value, bytes);
+            bufferWriter.Advance(bytesWritten);
+            return (RedisValue)bufferWriter.WrittenMemory;
+        }";
+        }
+
+        private static string AddSerializeJson(bool hasSerializeJson)
+        {
+            if (!hasSerializeJson)
+                return string.Empty;
+
+            return $@"
+
+        [ThreadStatic]
+        private static Utf8JsonWriter _reusableJsonWriter;
+
+        private static readonly JsonWriterOptions ReusableJsonWriterOptions = new JsonWriterOptions
+        {{
+            Indented = false,
+            SkipValidation = false
+        }};
+
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Utf8JsonWriter GetReusableJsonWriter(ArrayBufferWriter<byte> writer)
         {{
@@ -267,17 +284,6 @@ namespace {contextSymbol.ContainingNamespace}
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static RedisValue SerializeString(ArrayBufferWriter<byte> bufferWriter, ReadOnlySpan<char> value)
-        {{
-            bufferWriter.Clear();
-            int byteCount = Encoding.UTF8.GetByteCount(value);
-            Span<byte> bytes = bufferWriter.GetSpan(byteCount);
-            int bytesWritten = Encoding.UTF8.GetBytes(value, bytes);
-            bufferWriter.Advance(bytesWritten);
-            return (RedisValue)bufferWriter.WrittenMemory;
-        }}
-        
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static RedisValue SerializeJson<T>(ArrayBufferWriter<byte> bufferWriter, T value, JsonSerializerOptions? serializerOptions)
         {{
             bufferWriter.Clear();
@@ -285,39 +291,60 @@ namespace {contextSymbol.ContainingNamespace}
             JsonSerializer.Serialize(_reusableJsonWriter, value, serializerOptions);
             _reusableJsonWriter.Flush();
             return (RedisValue)bufferWriter.WrittenMemory;
-        }}
+        }}";
+        }
 
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static RedisValue SerializeJsonElement(ArrayBufferWriter<byte> bufferWriter, JsonElement value)
-        {{
-            return (RedisValue)value.GetBytesFromBase64();
-        }}");
+        private static string WriteContents(ImmutableArray<TypeSymbol> propertyTypes, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
+        {
+            var stringBuilder = new StringBuilder();
+            hasSerializeJson = false;
+            hasSerializeString = false;
+            hasSerializeJsonElement = false;
+            for (var index = 0; index < propertyTypes.Length; index++)
+            {
+                var propertyType = propertyTypes[index];
+                // var parser = GetParser(objectTypeSymbol, property);
+                var propertySymbol = propertyType.Symbol;
+                var wrapper = propertyType.GetProperty(propertySymbol!, out var _hasSerializeJson, out var _hasSerializeString, out var _hasSerializeJsonElement);
+                if (_hasSerializeJson && !hasSerializeJson)
+                    hasSerializeJson = true;
+                if (_hasSerializeString && !hasSerializeString)
+                    hasSerializeString = true;
+                if (_hasSerializeJsonElement && !hasSerializeJsonElement)
+                    hasSerializeJsonElement = true;
+
+                if (wrapper != null)
+                {
+                    stringBuilder.Append($"{wrapper}\n");
+                    if (index < propertyTypes.Length - 1)
+                    {
+                        stringBuilder.Append("\n                ");
+                    }
+                }
+                else
+                {
+                    stringBuilder.AppendLine($"throw new NotSupportedException($\"Cannot convert `{propertyType.Type}` to `RedisValue` for `{propertySymbol}`.\");");
+                }
             }
 
-            return langCode.ToString();
+            return stringBuilder.ToString();
         }
 
-        private static string GetFields(ImmutableArray<TypeSymbol> propertyTypes)
+        private static string GetFields(TypeSymbolOptions modelTypeOptions, ImmutableArray<TypeSymbol> propertyTypes)
         {
-            return @$"{string.Join(@"
-        ", propertyTypes.Select((propertyType, i) =>
+            var stringBuilder = new StringBuilder();
+            foreach (var propertyType in propertyTypes)
             {
-                var redisFieldName = RedisFieldName(propertyType);
+                var redisFieldName = modelTypeOptions.NamingStrategy switch
+                {
+                    CacheableFieldNamingStrategy.CamelCase => propertyType.Symbol!.Name.ToCamelCase(),
+                    CacheableFieldNamingStrategy.SnakeCase => propertyType.Symbol!.Name.ToSnakeCase(),
+                    _ => propertyType.Symbol!.Name,
+                };
+                stringBuilder.Append($"private static readonly RedisValue field_{propertyType.Symbol!.Name} = new RedisValue(\"{redisFieldName}\");\n        ");
+            }
 
-                return $@"private static readonly RedisValue field_{propertyType.Symbol!.Name} = new RedisValue(""{redisFieldName}"");";
-            }))}";
-        }
-
-        private static string RedisFieldName(TypeSymbol symbol)
-        {
-            var propertyName = symbol.Symbol!.Name;
-
-            var attributes = symbol.Symbol.GetAttributes();
-            var jsonPropertyNameAttr = attributes.FirstOrDefault(c => c.AttributeClass.Name.Equals(nameof(JsonPropertyNameAttribute), StringComparison.Ordinal));
-            if (jsonPropertyNameAttr != null)
-                propertyName = (string)jsonPropertyNameAttr.ConstructorArguments[0].Value!;
-
-            return propertyName;
+            return stringBuilder.ToString();
         }
 
         // private static string GetParser(ITypeSymbol objectTypeSymbol, TypeSymbol prop)
@@ -396,95 +423,67 @@ namespace {contextSymbol.ContainingNamespace}
         //     return $"static (obj, value) => throw new NotSupportedException($\"CCC Cannot convert {{value}} to {{typeof({prop})}}. Targeted property: {{nameof({prop.Type.Name})}}\");";
         // }
 
-        private static (ClassDeclarationSyntax Class, ISymbol ContextSymbol, List<ITypeSymbol> TypeContexts)? Transform(GeneratorSyntaxContext syntaxContext, CancellationToken cancellationToken)
+        private static TypeSymbolOptions? Transform(GeneratorSyntaxContext syntaxContext, CancellationToken cancellationToken)
         {
-            if (!(syntaxContext.Node is ClassDeclarationSyntax classDeclaration))
-                return null;
-
-            var classSymbol = ModelExtensions.GetDeclaredSymbol(syntaxContext.SemanticModel, classDeclaration, cancellationToken: cancellationToken);
-            if (classSymbol == null)
-                return null;
-
-            var typeContexts = new List<ITypeSymbol>();
-            foreach (var attributeListSyntax in classDeclaration.AttributeLists)
+            if (syntaxContext.Node is ClassDeclarationSyntax classDeclaration)
             {
-                foreach (var attributeSyntax in attributeListSyntax.Attributes)
+                if (ModelExtensions.GetDeclaredSymbol(syntaxContext.SemanticModel, classDeclaration, cancellationToken: cancellationToken) is INamedTypeSymbol classSymbol)
                 {
-                    if (!TryGetAttribute(attributeSyntax, nameof(JsonSerializableAttribute).Replace("Attribute", ""), syntaxContext, out var argType))
-                        continue;
+                    foreach (var attrsListSyntax in classDeclaration.AttributeLists)
+                    {
+                        foreach (var attrSyntax in attrsListSyntax.Attributes)
+                        {
+                            if ((syntaxContext.SemanticModel.GetOperation(attrSyntax) as IAttributeOperation)?.Operation is { Type: { Name: nameof(CacheableObjectAttribute) } attrType })
+                            {
+                                var typeOptions = new TypeSymbolOptions
+                                {
+                                    TypeSymbol = classSymbol,
+                                    NamingStrategy = CacheableFieldNamingStrategy.PascalCase
+                                };
+                                if (attrSyntax.ArgumentList != null)
+                                {
+                                    foreach (var argSyntax in attrSyntax.ArgumentList.Arguments)
+                                    {
+                                        if (argSyntax.Expression is MemberAccessExpressionSyntax { Expression: IdentifierNameSyntax { Identifier: { Text: nameof(CacheableFieldNamingStrategy) } identifier } } memberSyntax)
+                                        {
+                                            typeOptions.NamingStrategy = memberSyntax.Name.Identifier.Text switch
+                                            {
+                                                nameof(CacheableFieldNamingStrategy.PascalCase) => CacheableFieldNamingStrategy.PascalCase,
+                                                nameof(CacheableFieldNamingStrategy.CamelCase) => CacheableFieldNamingStrategy.CamelCase,
+                                                nameof(CacheableFieldNamingStrategy.SnakeCase) => CacheableFieldNamingStrategy.SnakeCase,
+                                                _ => typeOptions.NamingStrategy
+                                            };
+                                        }
+                                    }
+                                }
 
-                    if (typeContexts.Any(typeContext => SymbolEqualityComparer.Default.Equals(typeContext, argType)))
-                        continue;
-
-                    typeContexts.Add(argType!);
-                    // typeContexts.Add(new ObjectTypeSymbol
-                    // {
-                    //     Type = argType!,
-                    //     HasJsonSerializable = classDeclaration.AttributeLists.Any(c => c.Attributes.Any(attrSyntax => TryGetAttribute(attrSyntax, nameof(JsonSerializableAttribute).Replace("Attribute", ""), syntaxContext, out var argT) && SymbolEqualityComparer.Default.Equals(argType, argT)))
-                    // });
+                                return typeOptions;
+                            }
+                        }
+                    }
                 }
             }
 
-            return (classDeclaration, classSymbol, typeContexts);
-        }
-
-        private static bool TryGetAttribute(AttributeSyntax attributeSyntax, string attributeName, GeneratorSyntaxContext syntaxContext, out ITypeSymbol? argType)
-        {
-            argType = null;
-            if (!(attributeSyntax.Name is IdentifierNameSyntax nameSyntax))
-                return false;
-
-            if (!nameSyntax.Identifier.Text.Equals(attributeName, StringComparison.Ordinal))
-                return false;
-
-            if (attributeSyntax.ArgumentList is null)
-                return false;
-
-            foreach (var attributeArgumentSyntax in attributeSyntax.ArgumentList.Arguments)
-            {
-                var expressionSyntax = attributeArgumentSyntax.Expression;
-                var operation = syntaxContext.SemanticModel.GetOperation(expressionSyntax) as ITypeOfOperation;
-                var typeOperand = operation?.TypeOperand;
-                if (typeOperand == null)
-                    continue;
-
-                argType = typeOperand;
-            }
-
-            if (argType == null)
-                return false;
-
-            return true;
+            return null;
         }
 
         private static bool Predicate(SyntaxNode syntaxNode, CancellationToken cancellationToken)
         {
-            if (!(syntaxNode is ClassDeclarationSyntax classDeclaration))
-                return false;
-
-            if (!classDeclaration.Modifiers.Any(SyntaxKind.PublicKeyword) && !classDeclaration.Modifiers.Any(SyntaxKind.InternalKeyword))
-                return false;
-
-            if (!classDeclaration.Modifiers.Any(SyntaxKind.PartialKeyword))
-                return false;
-
-            var baseList = classDeclaration.BaseList;
-            if (baseList == null)
-                return false;
-
-            var types = baseList.Types;
-            if (types.Count == 0)
-                return false;
-
-            foreach (var type in types)
+            if (syntaxNode is ClassDeclarationSyntax classDeclaration)
             {
-                if (!(type.Type is IdentifierNameSyntax identifier))
-                    continue;
+                if (!classDeclaration.Modifiers.Any(SyntaxKind.PublicKeyword) && !classDeclaration.Modifiers.Any(SyntaxKind.InternalKeyword))
+                    return false;
 
-                if (!identifier.Identifier.Text.Equals(nameof(JsonSerializerContext), StringComparison.Ordinal))
-                    continue;
-
-                return true;
+                foreach (var attrsListSyntax in classDeclaration.AttributeLists)
+                {
+                    foreach (var attrSyntax in attrsListSyntax.Attributes)
+                    {
+                        if (attrSyntax.Name is IdentifierNameSyntax)
+                        {
+                            return true;
+                        }
+                    }
+                }
             }
 
             return false;

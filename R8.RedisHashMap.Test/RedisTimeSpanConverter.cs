@@ -2,7 +2,7 @@ using StackExchange.Redis;
 
 namespace R8.RedisHashMap.Test;
 
-public partial class RedisTimeSpanConverter : RedisValueConverter<TimeSpan>
+public class RedisTimeSpanConverter : RedisValueConverter<TimeSpan>
 {
     public override RedisValue ConvertToRedisValue(TimeSpan value)
     {

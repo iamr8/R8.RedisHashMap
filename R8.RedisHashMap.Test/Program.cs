@@ -1,9 +1,14 @@
 ﻿using System.Buffers;
+using System.Collections.Concurrent;
+using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
+using R8.RedisHashMap.Test.Map;
 using StackExchange.Redis;
 
 namespace R8.RedisHashMap.Test
@@ -85,23 +90,25 @@ namespace R8.RedisHashMap.Test
         }
     }
 
-    [MemoryDiagnoser(false)]
-    // [SimpleJob(RuntimeMoniker.Net60)]
-    // [SimpleJob(RuntimeMoniker.Net80)]
-    [SimpleJob(RuntimeMoniker.Net90)]
+    [SimpleJob(RunStrategy.Throughput)]
+    [SimpleJob(RuntimeMoniker.Net60)]
+    [MemoryDiagnoser]
     [ThreadingDiagnoser]
+    [GcServer(true)]
     public class CacheBenchmark
     {
         private UserDto[] models;
         private ConnectionMultiplexer connectionMultiplexer;
         private IDatabase database;
 
+        [Params(100, 1000, 10000)] public int N;
+
         [GlobalSetup]
         public void Setup()
         {
             connectionMultiplexer = ConnectionMultiplexer.Connect("localhost");
             database = connectionMultiplexer.GetDatabase();
-            models = Enumerable.Range(0, 1000)
+            models = Enumerable.Range(0, N)
                 .Select(x => new UserDto
                 {
                     Id = x,
@@ -122,7 +129,7 @@ namespace R8.RedisHashMap.Test
         }
 
         [Benchmark(Baseline = true)]
-        public void HMSET_1000()
+        public void Array()
         {
             foreach (var model in models)
             {
@@ -134,21 +141,30 @@ namespace R8.RedisHashMap.Test
                     new HashEntry("Email", (RedisValue)model.Email),
                     new HashEntry("Mobile", (RedisValue)model.Mobile),
                     new HashEntry("Age", model.Age),
-                    new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, CustomCacheableContext.Default.Options)),
-                    new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, CustomCacheableContext.Default.Options)),
-                    new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, CustomCacheableContext.Default.Options)),
+                    new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles)),
+                    new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags)),
+                    new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data)),
                 };
                 database.HashSet("set-plain", hashEntries, CommandFlags.None);
             }
         }
 
         [Benchmark]
-        public void HMSET_1000_SourceGeneration()
+        public void SourceGenerator()
         {
             foreach (var model in models)
             {
-                var hashEntries = model.GetHashEntries(CustomCacheableContext.Default.Options);
-                database.HashSet("set-source", hashEntries, CommandFlags.None);
+                // var hashEntries = model.GetHashEntries();
+                // database.HashSet("set-source", hashEntries, CommandFlags.None);
+            }
+        }
+
+        [Benchmark]
+        public void Map()
+        {
+            foreach (var model in models)
+            {
+                database.HashSetAll("set-map", model, null, flags: CommandFlags.None);
             }
         }
     }
