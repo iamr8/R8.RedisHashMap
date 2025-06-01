@@ -34,7 +34,6 @@ namespace R8.RedisHashMap
                                               type.SpecialType == SpecialType.System_Decimal ||
                                               type.SpecialType == SpecialType.System_Single ||
                                               type.SpecialType == SpecialType.System_Double);
-            IsMemory = type.Name.Equals("ReadOnlyMemory", StringComparison.Ordinal);
             IsEnum = IsValueType && type.TypeKind == TypeKind.Enum;
             IsReferenceType = type.IsReferenceType;
             IsString = IsReferenceType && type.SpecialType == SpecialType.System_String;
@@ -64,6 +63,8 @@ namespace R8.RedisHashMap
                 Arguments = ImmutableArray<TypeSymbol>.Empty;
             }
 
+            IsReadOnlyMemory = type.Name.Equals("ReadOnlyMemory", StringComparison.Ordinal) && this.Arguments.Length > 0;
+            IsBytesArray = IsArray && Arguments.Length == 1 && this.Arguments[0].Type.SpecialType == SpecialType.System_Byte;
             Converter = ConverterTypeSymbol.GetConverter(this);
         }
 
@@ -126,13 +127,14 @@ namespace R8.RedisHashMap
         public bool IsPrimitiveType { get; }
 
         public bool IsEnum { get; }
-        public bool IsMemory { get; }
+        public bool IsReadOnlyMemory { get; }
 
         /// <inheritdoc cref="ITypeSymbol.IsReferenceType"/>
         public bool IsReferenceType { get; }
 
         public bool IsString { get; }
         public bool IsArray { get; }
+        public bool IsBytesArray { get; }
         public bool IsCollection { get; }
         public bool IsList { get; }
         public bool IsDictionary { get; }
@@ -215,56 +217,25 @@ namespace R8.RedisHashMap
             return false;
         }
 
-        public string? GetProperty(ISymbol propertySymbol, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
+        public string? GetSetter(ISymbol propertySymbol, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
         {
             var propertyIdentifier = $"obj.{propertySymbol.Name}";
             var valueIdentifier = $"value_{propertySymbol.Name}";
             var typeIdentifier = $"{this.Type}{(this.IsNullable ? "?" : "")}";
 
-            var content = GetContent(propertySymbol, out hasSerializeJson, out hasSerializeString, out hasSerializeJsonElement);
+            var content = GetSetterContent(propertySymbol, considerJsonTypeInfo, out hasSerializeJson, out hasSerializeString, out hasSerializeJsonElement);
 
             var declareLocalVariable = $@"{typeIdentifier} {valueIdentifier} = {propertyIdentifier};
                 ";
-            if (this.IsPrimitiveType)
-            {
-                if (this.IsNullable)
-                {
-                    return declareLocalVariable + $@"if ({valueIdentifier}.HasValue)
-                    {{
-                        {content}
-                    }}";
-                }
-                else
-                {
-                    return declareLocalVariable + $@"{{
-                    {content}
-                }}";
-                }
-            }
-            else if (this.IsEnum)
-            {
-                if (this.IsNullable)
-                {
-                    return declareLocalVariable + @$"if ({valueIdentifier}.HasValue)
-                {{
-                    {content}
-                }}";
-                }
-                else
-                {
-                    return declareLocalVariable + $@"{{
-                    {content}
-                }}";
-                }
-            }
-            else if (this.IsMemory && this.Arguments.Length > 0)
+            if (this.IsReadOnlyMemory)
             {
                 return declareLocalVariable + $@"if ({valueIdentifier}.Length > 0)
                 {{
                     {content}
                 }}";
             }
-            else if (this.IsJsonElement)
+
+            if (this.IsJsonElement)
             {
                 if (this.IsNullable)
                 {
@@ -281,7 +252,16 @@ namespace R8.RedisHashMap
                 }}";
                 }
             }
-            else if (this.IsValueType) // User-defined struct
+
+            if (this.IsJsonDocument)
+            {
+                return declareLocalVariable + @$"if ({valueIdentifier} != {(this.IsNullable ? "null" : "default")} && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Null)
+                {{
+                    {content}
+                }}";
+            }
+
+            if (this.IsValueType)
             {
                 if (this.IsNullable)
                 {
@@ -297,56 +277,38 @@ namespace R8.RedisHashMap
                 }}";
                 }
             }
-            else if (this.IsString)
+
+            if (this.IsString)
             {
                 return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
                 {{
                     {content}
                 }}";
-            }
-            else if (this.IsJsonDocument)
-            {
-                return declareLocalVariable + @$"if ({valueIdentifier} != {(this.IsNullable ? "null" : "default")} && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Null)
-                {{
-                    {content}
-                }}";
-            }
-            else if (this is { IsArray: true, Arguments: { Length: 1 } } && this.Arguments[0].Type.SpecialType == SpecialType.System_Byte)
-            {
-                return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
-                {{
-                    {content}
-                }}";
-            }
-            else if (this.IsReferenceType) // User-defined class
-            {
-                if (this.IsArray)
-                {
-                    return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
-                {{
-                    {content}
-                }}";
-                }
-                else if (this.IsDictionary || this.IsCollection || this.IsList)
-                {
-                    return declareLocalVariable + $@"if ({valueIdentifier} is {{ Count: > 0 }})
-                {{
-                    {content}
-                }}";
-                }
-                else
-                {
-                    return declareLocalVariable + $@"if ({valueIdentifier} != {(this.IsNullable ? "null" : "default")})
-                {{
-                    {content}
-                }}";
-                }
             }
 
-            return null;
+            if (this.IsArray)
+            {
+                return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
+                {{
+                    {content}
+                }}";
+            }
+
+            if (this.IsDictionary || this.IsCollection || this.IsList)
+            {
+                return declareLocalVariable + $@"if ({valueIdentifier} is {{ Count: > 0 }})
+                {{
+                    {content}
+                }}";
+            }
+
+            return declareLocalVariable + $@"if ({valueIdentifier} != {(this.IsNullable ? "null" : "default")})
+                {{
+                    {content}
+                }}";
         }
 
-        private string? GetContent(ISymbol propertySymbol, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
+        private string? GetSetterContent(ISymbol propertySymbol, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
         {
             hasSerializeString = false;
             hasSerializeJson = false;
@@ -375,7 +337,7 @@ namespace R8.RedisHashMap
                 {
                     return $"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)})({this.EnumUnderlyingType}){valueIdentifier}{(this.IsNullable ? ".Value" : "")});";
                 }
-                else if (this.IsMemory && this.Arguments.Length > 0)
+                else if (this.IsReadOnlyMemory)
                 {
                     return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
                 }
@@ -385,20 +347,17 @@ namespace R8.RedisHashMap
                     return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJsonElement(bufferWriter, {valueIdentifier}{(this.IsNullable ? ".Value" : "")});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                 }
+                else if (this.IsJsonDocument)
+                {
+                    hasSerializeJson = true;
+                    return @$"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJsonElement(bufferWriter, {valueIdentifier}.RootElement);
+                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+                }
                 else if (this.IsValueType) // User-defined struct
                 {
-                    if (this.IsNullable)
-                    {
-                        hasSerializeJson = true;
-                        return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}.Value, serializerOptions);
+                    hasSerializeJson = true;
+                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}{(this.IsNullable ? ".Value" : "")}, serializerOptions);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-                    }
-                    else
-                    {
-                        hasSerializeJson = true;
-                        return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, serializerOptions);
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-                    }
                 }
                 else if (this.IsString)
                 {
@@ -406,21 +365,79 @@ namespace R8.RedisHashMap
                     return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeString(bufferWriter, {valueIdentifier}.AsSpan());
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                 }
-                else if (this.IsJsonDocument)
-                {
-                    hasSerializeJson = true;
-                    return @$"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJsonElement(bufferWriter, {valueIdentifier}.RootElement);
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-                }
-                else if (this is { IsArray: true, Arguments: { Length: 1 } } && this.Arguments[0].Type.SpecialType == SpecialType.System_Byte)
+                else if (this.IsBytesArray)
                 {
                     return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
                 }
                 else if (this.IsReferenceType) // User-defined class
                 {
                     hasSerializeJson = true;
-                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, serializerOptions);
+                    if (considerJsonTypeInfo)
+                    {
+                        return $@"JsonTypeInfo<{this.Type}>? jsonTypeInfo = jsonSerializerContext.GetTypeInfo(typeof({this.Type})) as JsonTypeInfo<{this.Type}>;
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, jsonTypeInfo);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+                    }
+                    else
+                    {
+                        return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, serializerOptions);
+                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+                    }
+                }
+            }
+
+            return null;
+        }
+
+        public string? GetGetterContent(ISymbol propertySymbol)
+        {
+            var setter = $"obj.{propertySymbol.Name} = ";
+            var typeIdentifier = $"{this.Type}{(this.IsNullable ? "?" : "")}";
+
+            if (this.TryGetConverter(out var converter))
+            {
+                return $@"{converter.ConverterType} converter_{converter.ConverterName} = {converter.ConverterType}Instance.Default;
+                    {setter}converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.ConvertFromRedisValue)}(entry.Value);";
+            }
+            else
+            {
+                if (this.IsPrimitiveType)
+                {
+                    return $@"{setter}({typeIdentifier})entry.Value;";
+                }
+                else if (this.IsEnum)
+                {
+                    return $"{setter}({this.Type})({this.EnumUnderlyingType})entry.Value;";
+                }
+                else if (this.IsReadOnlyMemory)
+                {
+                    return $@"{setter}({nameof(ReadOnlyMemory<byte>)}<byte>)entry.Value;";
+                }
+                else if (this.IsJsonElement)
+                {
+                    return $@"var utf8JsonReader = new Utf8JsonReader(((ReadOnlyMemory<byte>)entry.Value).Span);
+                    {setter}JsonElement.ParseValue(ref utf8JsonReader);";
+                }
+                else if (this.IsJsonDocument)
+                {
+                    return @$"var jsonDoc = JsonDocument.Parse((ReadOnlyMemory<byte>)entry.Value);
+                    {setter}jsonDoc;";
+                }
+                else if (this.IsValueType) // User-defined struct
+                {
+                    return $@"{setter}DeserializeJson<{this.Type}>(entry.Value, serializerOptions);";
+                }
+                else if (this.IsString)
+                {
+                    return $@"{setter}DeserializeString(entry.Value);";
+                }
+                else if (this.IsBytesArray)
+                {
+                    return $@"{setter}(byte[])entry.Value;";
+                }
+                else if (this.IsReferenceType) // User-defined class
+                {
+                    return $@"{setter}DeserializeJson<{this.Type}>(entry.Value, serializerOptions);";
                 }
             }
 

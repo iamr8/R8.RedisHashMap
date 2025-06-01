@@ -1,4 +1,4 @@
-namespace R8.RedisHashMap.Test;
+namespace R8.RedisHashMap.Test.Models;
 
 public enum UserRoleType
 {

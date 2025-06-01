@@ -1,5 +1,6 @@
 ﻿using System.Buffers;
 using System.Collections.Concurrent;
+using System.Diagnostics.CodeAnalysis;
 using System.Reflection;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -9,89 +10,20 @@ using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using R8.RedisHashMap.Test.Map;
+using R8.RedisHashMap.Test.Models;
 using StackExchange.Redis;
 
 namespace R8.RedisHashMap.Test
 {
     public class Class1
     {
-        public static async Task Main(string[] args)
+        public static void Main(string[] args)
         {
-            // var connectionMultiplexer = await ConnectionMultiplexer.ConnectAsync("localhost");
-            // var db = connectionMultiplexer.GetDatabase();
-            //
-            // var stopWatch = System.Diagnostics.Stopwatch.StartNew();
-            // await db.HashSetAsync("test-with-cache-dict-source", new Dictionary<int, UserDto>
-            // {
-            //     [1] = new UserDto
-            //     {
-            //         Id = 1,
-            //         FirstName = "Arash",
-            //         LastName = "Shabbeh",
-            //         Email = "arash.shabbeh@gmail.com",
-            //         Mobile = "09123456789",
-            //         Roles = [UserRoleType.Admin, UserRoleType.User],
-            //         Tags = ["super-admin", "moderator", "super-user", "developer"],
-            //         Data = new Dictionary<string, string>
-            //         {
-            //             ["nationality"] = "Iranian",
-            //             ["countryOfResidence"] = "Turkey",
-            //             ["age"] = "34",
-            //         },
-            //         Duration = TimeSpan.FromDays(1)
-            //     },
-            //     [2] = new UserDto
-            //     {
-            //         Id = 2,
-            //         FirstName = "John",
-            //         LastName = "Doe",
-            //         Email = "zaer.abood@migeyl.com",
-            //         Mobile = "09123456789",
-            //         Roles = [UserRoleType.Admin, UserRoleType.User],
-            //         Tags = ["developer"],
-            //         Duration = TimeSpan.FromMinutes(1)
-            //     }
-            // }, CustomCacheableContext.Default);
-            // stopWatch.Stop();
-            // Console.WriteLine($"HashSet with Dictionary: {stopWatch.ElapsedMilliseconds}ms");
-            //
-            // stopWatch.Restart();
-            // await db.HashSetAsync("test-with-cache-source", new UserDto
-            // {
-            //     Id = 1,
-            //     FirstName = "Arash",
-            //     LastName = "Shabbeh",
-            //     Email = "arash.shabbeh@gmail.com",
-            //     Mobile = "09123456789",
-            //     Roles = [UserRoleType.Admin, UserRoleType.User],
-            //     Tags = ["super-admin", "moderator", "super-user", "developer"],
-            //     Data = new Dictionary<string, string>
-            //     {
-            //         ["nationality"] = "Iranian",
-            //         ["countryOfResidence"] = "Turkey",
-            //         ["age"] = "34",
-            //     },
-            //     Duration = TimeSpan.FromDays(1)
-            // }, CustomCacheableContext.Default);
-            // stopWatch.Stop();
-            // Console.WriteLine($"HashSet with Model: {stopWatch.ElapsedMilliseconds}ms");
-            //
-            // stopWatch.Restart();
-            // var read12 = await db.HashGetAsync<UserDto>("test-with-cache-source", CustomCacheableContext.Default);
-            // stopWatch.Stop();
-            // Console.WriteLine($"HashGet with Model: {stopWatch.ElapsedMilliseconds}ms");
-            //
-            // stopWatch.Restart();
-            // var read22 = await db.HashGetAsync<Dictionary<int, UserDto>>("test-with-cache-dict-source", CustomCacheableContext.Default);
-            // stopWatch.Stop();
-            // Console.WriteLine($"HashGet with Dictionary: {stopWatch.ElapsedMilliseconds}ms");
-
             BenchmarkRunner.Run<CacheBenchmark>();
         }
     }
 
-    [SimpleJob(RunStrategy.Throughput)]
-    [SimpleJob(RuntimeMoniker.Net60)]
+    [SimpleJob(RuntimeMoniker.Net80)]
     [MemoryDiagnoser]
     [ThreadingDiagnoser]
     [GcServer(true)]
@@ -150,12 +82,47 @@ namespace R8.RedisHashMap.Test
         }
 
         [Benchmark]
-        public void SourceGenerator()
+        public void Array_With_SerializerOptions()
         {
             foreach (var model in models)
             {
-                // var hashEntries = model.GetHashEntries();
-                // database.HashSet("set-source", hashEntries, CommandFlags.None);
+                var hashEntries = new HashEntry[]
+                {
+                    new HashEntry("Id", model.Id),
+                    new HashEntry("FirstName", (RedisValue)model.FirstName),
+                    new HashEntry("LastName", (RedisValue)model.LastName),
+                    new HashEntry("Email", (RedisValue)model.Email),
+                    new HashEntry("Mobile", (RedisValue)model.Mobile),
+                    new HashEntry("Age", model.Age),
+                    new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, UserDtoJsonSerializer.Default.Options)),
+                    new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, UserDtoJsonSerializer.Default.Options)),
+                    new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, UserDtoJsonSerializer.Default.Options)),
+                };
+                database.HashSet("set-plain-so", hashEntries, CommandFlags.None);
+            }
+        }
+
+        [Benchmark]
+        public void SourceGenerator()
+        {
+            var d = RedisValue.Null;
+            var f = new Utf8JsonReader(((ReadOnlyMemory<byte>)d).Span);
+            var ff = JsonElement.ParseValue(ref f);
+            var _model = database.HashGetAll("get-source").Parse();
+            foreach (var model in models)
+            {
+                var hashEntries = model.GetHashEntries();
+                database.HashSet("set-source", hashEntries, CommandFlags.None);
+            }
+        }
+
+        [Benchmark]
+        public void SourceGenerator_With_SerializerOptions()
+        {
+            foreach (var model in models)
+            {
+                var hashEntries = model.GetHashEntries(UserDtoJsonSerializer.Default.Options);
+                database.HashSet("set-source-so", hashEntries, CommandFlags.None);
             }
         }
 
@@ -165,6 +132,15 @@ namespace R8.RedisHashMap.Test
             foreach (var model in models)
             {
                 database.HashSetAll("set-map", model, null, flags: CommandFlags.None);
+            }
+        }
+
+        [Benchmark]
+        public void Map_With_SerializerOptions()
+        {
+            foreach (var model in models)
+            {
+                database.HashSetAll("set-map-so", model, UserDtoJsonSerializer.Default.Options, flags: CommandFlags.None);
             }
         }
     }

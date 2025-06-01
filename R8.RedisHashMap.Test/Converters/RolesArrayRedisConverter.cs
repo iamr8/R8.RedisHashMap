@@ -1,7 +1,8 @@
 using System.Text.Json;
+using R8.RedisHashMap.Test.Models;
 using StackExchange.Redis;
 
-namespace R8.RedisHashMap.Test;
+namespace R8.RedisHashMap.Test.Converters;
 
 public class RolesArrayRedisConverter : RedisValueConverter<UserRoleType[]>
 {

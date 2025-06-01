@@ -1,6 +1,6 @@
 using StackExchange.Redis;
 
-namespace R8.RedisHashMap.Test;
+namespace R8.RedisHashMap.Test.Converters;
 
 public class IdStringRedisConverter : RedisValueConverter<int>
 {
