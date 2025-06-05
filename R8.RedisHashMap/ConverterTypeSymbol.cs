@@ -90,8 +90,8 @@ namespace R8.RedisHashMap
 
         public override int GetHashCode()
         {
-            var hashCode = SymbolEqualityComparer.Default.GetHashCode(ConverterType);
-            return HashCode.Combine(hashCode, TargetType);
+            return SymbolEqualityComparer.Default.GetHashCode(ConverterType) ^ 
+                   TargetType.GetHashCode();
         }
 
         public static bool operator ==(ConverterTypeSymbol? left, ConverterTypeSymbol? right)

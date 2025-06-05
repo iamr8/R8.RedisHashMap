@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
@@ -217,13 +218,13 @@ namespace R8.RedisHashMap
             return false;
         }
 
-        public string? GetSetter(ISymbol propertySymbol, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
+        public string? GetSetter(ISymbol propertySymbol, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement, out ConverterTypeSymbol? converter)
         {
             var propertyIdentifier = $"obj.{propertySymbol.Name}";
             var valueIdentifier = $"value_{propertySymbol.Name}";
             var typeIdentifier = $"{this.Type}{(this.IsNullable ? "?" : "")}";
 
-            var content = GetSetterContent(propertySymbol, considerJsonTypeInfo, out hasSerializeJson, out hasSerializeString, out hasSerializeJsonElement);
+            var content = GetSetterContent(propertySymbol, considerJsonTypeInfo, out hasSerializeJson, out hasSerializeString, out hasSerializeJsonElement, out converter);
 
             var declareLocalVariable = $@"{typeIdentifier} {valueIdentifier} = {propertyIdentifier};
                 ";
@@ -308,7 +309,7 @@ namespace R8.RedisHashMap
                 }}";
         }
 
-        private string? GetSetterContent(ISymbol propertySymbol, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
+        private string? GetSetterContent(ISymbol propertySymbol, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement, out ConverterTypeSymbol? converter)
         {
             hasSerializeString = false;
             hasSerializeJson = false;
@@ -317,11 +318,10 @@ namespace R8.RedisHashMap
             var valueIdentifier = $"value_{propertySymbol.Name}";
             const string setter = "entries[++index] = ";
 
-            if (this.TryGetConverter(out var converter))
+            if (this.TryGetConverter(out converter))
             {
                 var hasDotValue = this.IsNullable && this.IsValueType;
-                return $@"{converter.ConverterType} converter_{converter.ConverterName} = {converter.ConverterType}Instance.Default;
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.ConvertToRedisValue)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
+                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.ConvertToRedisValue)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
                     if (!redis_{propertySymbol.Name}.{nameof(RedisValue.IsNullOrEmpty)})
                     {{
                         {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});
@@ -344,25 +344,25 @@ namespace R8.RedisHashMap
                 else if (this.IsJsonElement)
                 {
                     hasSerializeJsonElement = true;
-                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJsonElement(bufferWriter, {valueIdentifier}{(this.IsNullable ? ".Value" : "")});
+                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJsonElement({valueIdentifier}{(this.IsNullable ? ".Value" : "")});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                 }
                 else if (this.IsJsonDocument)
                 {
                     hasSerializeJson = true;
-                    return @$"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJsonElement(bufferWriter, {valueIdentifier}.RootElement);
+                    return @$"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJsonElement({valueIdentifier}.RootElement);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                 }
                 else if (this.IsValueType) // User-defined struct
                 {
                     hasSerializeJson = true;
-                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}{(this.IsNullable ? ".Value" : "")}, serializerOptions);
+                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson<{this.Type}>(bufferWriter, jsonWriter, {valueIdentifier}{(this.IsNullable ? ".Value" : "")}, serializerOptions);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                 }
                 else if (this.IsString)
                 {
                     hasSerializeString = true;
-                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeString(bufferWriter, {valueIdentifier}.AsSpan());
+                    return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeString(bufferWriter, {valueIdentifier});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                 }
                 else if (this.IsBytesArray)
@@ -375,12 +375,12 @@ namespace R8.RedisHashMap
                     if (considerJsonTypeInfo)
                     {
                         return $@"JsonTypeInfo<{this.Type}>? jsonTypeInfo = jsonSerializerContext.GetTypeInfo(typeof({this.Type})) as JsonTypeInfo<{this.Type}>;
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, jsonTypeInfo);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson<{this.Type}>(bufferWriter, jsonWriter, {valueIdentifier}, jsonTypeInfo);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                     }
                     else
                     {
-                        return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson(bufferWriter, {valueIdentifier}, serializerOptions);
+                        return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = SerializeJson<{this.Type}>(bufferWriter, jsonWriter, {valueIdentifier}, serializerOptions);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
                     }
                 }
@@ -389,15 +389,14 @@ namespace R8.RedisHashMap
             return null;
         }
 
-        public string? GetGetterContent(ISymbol propertySymbol)
+        public string? GetGetterContent(ISymbol propertySymbol, out ConverterTypeSymbol? converter)
         {
             var setter = $"obj.{propertySymbol.Name} = ";
             var typeIdentifier = $"{this.Type}{(this.IsNullable ? "?" : "")}";
 
-            if (this.TryGetConverter(out var converter))
+            if (this.TryGetConverter(out converter))
             {
-                return $@"{converter.ConverterType} converter_{converter.ConverterName} = {converter.ConverterType}Instance.Default;
-                    {setter}converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.ConvertFromRedisValue)}(entry.Value);";
+                return $@"{setter}converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.ConvertFromRedisValue)}(entry.Value);";
             }
             else
             {
@@ -429,7 +428,7 @@ namespace R8.RedisHashMap
                 }
                 else if (this.IsString)
                 {
-                    return $@"{setter}DeserializeString(entry.Value);";
+                    return $@"{setter}(string?)entry.Value;";
                 }
                 else if (this.IsBytesArray)
                 {
@@ -473,7 +472,8 @@ namespace R8.RedisHashMap
 
         public override int GetHashCode()
         {
-            return HashCode.Combine(Symbol, Type);
+            return SymbolEqualityComparer.Default.GetHashCode(Symbol) ^ 
+                   SymbolEqualityComparer.Default.GetHashCode(Type);
         }
 
         public static bool operator ==(TypeSymbol left, TypeSymbol right)

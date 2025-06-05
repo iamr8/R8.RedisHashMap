@@ -150,12 +150,9 @@ namespace {converterSymbol.ConverterType.ContainingNamespace}
 #nullable enable annotations
 #nullable disable warnings
 
-using System;
 using System.Buffers;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 using System.Runtime.CompilerServices;
 
 using StackExchange.Redis;
@@ -165,7 +162,7 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
     [global::System.CodeDom.Compiler.GeneratedCodeAttribute(""{SourceGeneratorNamespace}"", ""{SourceGeneratorVersion}"")]
     internal static class {displayName}Extensions
     {{
-        private static readonly RedisHashMapContext context = {modelTypeOptions.AssemblyName}.RedisHashMapContext.Default;
+        // private static readonly RedisHashMapContext context = {modelTypeOptions.AssemblyName}.RedisHashMapContext.Default;
 
         {GetHashEntries(modelTypeOptions, modelTypeOptions.ObjectTypeSymbol, modelTypeOptions.Properties)}
     }}
@@ -213,23 +210,29 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
             }
             else
             {
-                var writeContents = WriteContents(propertyTypes, false, out var hasSerializeJson, out var hasSerializeString, out var hasSerializeJsonElement);
-                var readContents = ReadContents(propertyTypes);
+                var writeContents = WriteContents(propertyTypes, false, out var hasSerializeJson, out var hasSerializeString, out var hasSerializeJsonElement, out var writeConverters);
+                var readContents = ReadContents(propertyTypes, out var readConverters);
+                var converters = writeConverters.Concat(readConverters).Distinct().ToImmutableArray();
+
                 return @$"{GetFields(modelTypeOptions, propertyTypes)}
         private static readonly ArrayPool<HashEntry> arrayPool = ArrayPool<HashEntry>.Create({propertyTypes.Length}, 1_000);
         private static readonly Encoding encoding = Encoding.UTF8;
         private static readonly HashEntry[] emptyArray = Array.Empty<HashEntry>();
 
-        public static {objectType} Parse(this HashEntry[] entries, JsonSerializerOptions? serializerOptions = null)
+        {string.Join(@"
+        ", converters.Select(c => $"private static readonly {c.ConverterType} converter_{c.ConverterName} = {c.ConverterType}Instance.Default;"))}
+
+        public static {objectType} FromHashEntries(this HashEntry[] entries, JsonSerializerOptions? serializerOptions = null)
         {{
-            if (entries == null || entries.Length == 0)
+            var length = entries.Length;
+            if (length == 0)
                 return default({objectType});
 
             var obj = new {objectType}();
-            for (int i = 0; i < entries.Length; i++)
+            for (int i = 0; i < length; i++)
             {{
-                var entry = entries[i];
-                var name = entry.Name;
+                HashEntry entry = entries[i];
+                RedisValue name = entry.Name;
                 if (name.IsNullOrEmpty)
                     continue;
 
@@ -239,13 +242,14 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
             return obj;
         }}
 
-        public static HashEntry[] GetHashEntries(this {objectType} obj, JsonSerializerOptions? serializerOptions = null)
+        public static HashEntry[] ToHashEntries(this {objectType} obj, JsonSerializerOptions? serializerOptions = null)
         {{
             HashEntry[] entries = arrayPool.Rent({propertyTypes.Length});
             Span<HashEntry> entriesSpan = entries.AsSpan();
             int index = -1;
 
             ArrayBufferWriter<byte> bufferWriter = GetReusableBufferWriter();
+            {(hasSerializeJson ? "Utf8JsonWriter jsonWriter = GetReusableJsonWriter(bufferWriter);" : "")}
 
             try
             {{
@@ -255,7 +259,7 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
 
                 int finalCount = index + 1;
                 HashEntry[] resultArray = new HashEntry[finalCount];
-                entriesSpan.Slice(0, finalCount).CopyTo(resultArray);
+                Array.Copy(entries, 0, resultArray, 0, finalCount);
                 return resultArray;
             }}
             finally
@@ -266,7 +270,7 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
         }}
 
         [ThreadStatic]
-        private static ArrayBufferWriter<byte> _reusableByteBufferWriter;
+        private static ArrayBufferWriter<byte>? _reusableByteBufferWriter;
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ArrayBufferWriter<byte> GetReusableBufferWriter()
@@ -290,7 +294,7 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
             return @"
         
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static RedisValue SerializeJsonElement(ArrayBufferWriter<byte> bufferWriter, JsonElement value)
+        private static RedisValue SerializeJsonElement(in JsonElement value)
         {
             return (RedisValue)value.GetBytesFromBase64();
         }";
@@ -304,23 +308,15 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
             return @"
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static RedisValue SerializeString(ArrayBufferWriter<byte> bufferWriter, ReadOnlySpan<char> value)
+        private static RedisValue SerializeString(ArrayBufferWriter<byte> bufferWriter, string str)
         {
             bufferWriter.Clear();
+            ReadOnlySpan<char> value = str.AsSpan();
             int byteCount = encoding.GetByteCount(value);
             Span<byte> bytes = bufferWriter.GetSpan(byteCount);
             int bytesWritten = encoding.GetBytes(value, bytes);
             bufferWriter.Advance(bytesWritten);
             return (RedisValue)bufferWriter.WrittenMemory;
-        }
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static string DeserializeString(RedisValue value)
-        {
-            if (value.IsInteger)
-                return value.ToString();
-
-            return encoding.GetString(((ReadOnlyMemory<byte>)value).Span);
         }";
         }
 
@@ -357,41 +353,46 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static RedisValue SerializeJson<TValue>(ArrayBufferWriter<byte> bufferWriter, TValue value, JsonSerializerOptions? serializerOptions)
+        private static RedisValue SerializeJson<TValue>(ArrayBufferWriter<byte> bufferWriter, Utf8JsonWriter jsonWriter, TValue value, JsonSerializerOptions? serializerOptions)
         {{
             bufferWriter.Clear();
-            Utf8JsonWriter jsonWriter = GetReusableJsonWriter(bufferWriter);
-            JsonSerializer.Serialize(_reusableJsonWriter, value, serializerOptions);
-            _reusableJsonWriter.Flush();
+            jsonWriter.Reset(bufferWriter);
+            JsonSerializer.Serialize(jsonWriter, value, serializerOptions);
+            jsonWriter.Flush();
             return (RedisValue)bufferWriter.WrittenMemory;
         }}
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private static TValue DeserializeJson<TValue>(RedisValue value, JsonSerializerOptions? serializerOptions)
+        private static TValue DeserializeJson<TValue>(in RedisValue value, JsonSerializerOptions? serializerOptions)
         {{
             return JsonSerializer.Deserialize<TValue>(((ReadOnlyMemory<byte>)value).Span, serializerOptions)!;
         }}";
         }
 
-        private static string ReadContents(ImmutableArray<TypeSymbol> propertyTypes)
+        private static string ReadContents(ImmutableArray<TypeSymbol> propertyTypes, out IReadOnlyList<ConverterTypeSymbol> converters)
         {
             var stringBuilder = new StringBuilder();
             var propertyTypesLength = propertyTypes.Length;
+            converters = new List<ConverterTypeSymbol>();
             for (var index = 0; index < propertyTypesLength; index++)
             {
                 var propertyType = propertyTypes[index];
                 // var parser = GetParser(objectTypeSymbol, property);
                 var propertySymbol = propertyType.Symbol;
                 stringBuilder.Append($"if (name == field_{propertySymbol!.Name})\n                {{\n                    ");
-                var wrapper = propertyType.GetGetterContent(propertySymbol);
+                var wrapper = propertyType.GetGetterContent(propertySymbol, out var converter);
                 if (wrapper != null)
                 {
+                    if (converter != null && !converters.Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, converter.ConverterType)))
+                        ((List<ConverterTypeSymbol>)converters).Add(converter);
+
                     stringBuilder.Append($"{wrapper}\n");
                 }
                 else
                 {
                     stringBuilder.AppendLine($"throw new NotSupportedException($\"Cannot convert `{propertyType.Type}` to `RedisValue` for `{propertySymbol}`.\");\n");
                 }
+
                 stringBuilder.AppendLine("                    continue;\n                }");
 
                 if (index < propertyTypesLength - 1)
@@ -403,19 +404,20 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
             return stringBuilder.ToString();
         }
 
-        private static string WriteContents(ImmutableArray<TypeSymbol> propertyTypes, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement)
+        private static string WriteContents(ImmutableArray<TypeSymbol> propertyTypes, bool considerJsonTypeInfo, out bool hasSerializeJson, out bool hasSerializeString, out bool hasSerializeJsonElement, out IReadOnlyList<ConverterTypeSymbol> converters)
         {
             var stringBuilder = new StringBuilder();
             hasSerializeJson = false;
             hasSerializeString = false;
             hasSerializeJsonElement = false;
             var propertyTypesLength = propertyTypes.Length;
+            converters = new List<ConverterTypeSymbol>();
             for (var index = 0; index < propertyTypesLength; index++)
             {
                 var propertyType = propertyTypes[index];
                 // var parser = GetParser(objectTypeSymbol, property);
                 var propertySymbol = propertyType.Symbol;
-                var wrapper = propertyType.GetSetter(propertySymbol!, considerJsonTypeInfo, out var _hasSerializeJson, out var _hasSerializeString, out var _hasSerializeJsonElement);
+                var wrapper = propertyType.GetSetter(propertySymbol!, considerJsonTypeInfo, out var _hasSerializeJson, out var _hasSerializeString, out var _hasSerializeJsonElement, out var converter);
                 if (_hasSerializeJson && !hasSerializeJson)
                     hasSerializeJson = true;
                 if (_hasSerializeString && !hasSerializeString)
@@ -425,6 +427,9 @@ namespace {modelTypeOptions.TypeSymbol.ContainingNamespace}
 
                 if (wrapper != null)
                 {
+                    if (converter != null && !((List<ConverterTypeSymbol>)converters).Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, converter.ConverterType)))
+                        ((List<ConverterTypeSymbol>)converters).Add(converter);
+
                     stringBuilder.Append($"{wrapper}\n");
                     if (index < propertyTypesLength - 1)
                     {
