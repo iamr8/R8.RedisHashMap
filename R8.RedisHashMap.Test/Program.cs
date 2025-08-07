@@ -1,103 +1,169 @@
-﻿using System.Buffers;
-using System.Collections.Concurrent;
-using System.Diagnostics.CodeAnalysis;
-using System.Reflection;
-using System.Runtime.CompilerServices;
-using System.Text.Json;
-using System.Text.Json.Serialization;
+﻿using System.Text.Json;
 using BenchmarkDotNet.Attributes;
-using BenchmarkDotNet.Engines;
 using BenchmarkDotNet.Jobs;
 using BenchmarkDotNet.Running;
 using R8.RedisHashMap.Test.Map;
 using R8.RedisHashMap.Test.Models;
 using StackExchange.Redis;
 
-namespace R8.RedisHashMap.Test
+namespace R8.RedisHashMap.Test;
+
+public class Class1
 {
-    public class Class1
+    public static void Main(string[] args)
     {
-        public static void Main(string[] args)
-        {
-            BenchmarkRunner.Run<CacheBenchmark>();
-        }
+        BenchmarkRunner.Run<WriteBenchmark>();
+        // BenchmarkRunner.Run<ReadBenchmark>();
+    }
+}
+
+[SimpleJob(RuntimeMoniker.Net90)]
+[MemoryDiagnoser]
+[ThreadingDiagnoser]
+[GcServer(true)]
+public class WriteBenchmark
+{
+    private ConnectionMultiplexer connectionMultiplexer;
+    private UserDto[] models;
+
+    [Params(10_000)] public int N;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        models = Enumerable.Range(0, N)
+            .Select(x => new UserDto
+            {
+                Id = x,
+                FirstName = $"Arash {x}",
+                LastName = $"Shabbeh {x}",
+                Email = "arash.shabbeh@gmail.com",
+                Mobile = $"09123{x:00000}",
+                Age = 34,
+                Roles = new[] { UserRoleType.Admin, UserRoleType.User },
+                Tags = new[] { "super-admin", "moderator", "super-user", "developer" },
+                Data = new Dictionary<string, string>
+                {
+                    ["nationality"] = "Iranian",
+                    ["countryOfResidence"] = "Turkey",
+                    ["age"] = "34"
+                }
+            }).ToArray();
     }
 
-    [SimpleJob(RuntimeMoniker.Net90)]
-    [MemoryDiagnoser]
-    [ThreadingDiagnoser]
-    [GcServer(true)]
-    public class CacheBenchmark
+    [Benchmark(Baseline = true, Description = "Write: Array + JsonSerializerOptions")]
+    public void Write_Array1()
     {
-        private UserDto[] models;
-        private ConnectionMultiplexer connectionMultiplexer;
-        private IDatabase database;
-
-        [Params(10_000)] public int N;
-
-        [GlobalSetup]
-        public void Setup()
-        {
-            connectionMultiplexer = ConnectionMultiplexer.Connect("localhost");
-            database = connectionMultiplexer.GetDatabase();
-            models = Enumerable.Range(0, N)
-                .Select(x => new UserDto
-                {
-                    Id = x,
-                    FirstName = "Arash",
-                    LastName = "Shabbeh",
-                    Email = "arash.shabbeh@gmail.com",
-                    Mobile = "09123456789",
-                    Age = 34,
-                    Roles = new[] { UserRoleType.Admin, UserRoleType.User },
-                    Tags = new[] { "super-admin", "moderator", "super-user", "developer" },
-                    Data = new Dictionary<string, string>
-                    {
-                        ["nationality"] = "Iranian",
-                        ["countryOfResidence"] = "Turkey",
-                        ["age"] = "34",
-                    },
-                }).ToArray();
-        }
-
-        [Benchmark(Baseline = true, Description = "HashEntries generated manually")]
-        public void Array()
-        {
-            foreach (var model in models)
+        foreach (var model in models)
+            _ = new[]
             {
-                var hashEntries = new HashEntry[]
-                {
-                    new HashEntry("Id", model.Id),
-                    new HashEntry("FirstName", (RedisValue)model.FirstName),
-                    new HashEntry("LastName", (RedisValue)model.LastName),
-                    new HashEntry("Email", (RedisValue)model.Email),
-                    new HashEntry("Mobile", (RedisValue)model.Mobile),
-                    new HashEntry("Age", model.Age),
-                    new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, UserDtoJsonSerializer.Default.Options)),
-                    new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, UserDtoJsonSerializer.Default.Options)),
-                    new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, UserDtoJsonSerializer.Default.Options)),
-                };
-                database.HashSet("set-plain", hashEntries, CommandFlags.None);
-            }
-        }
+                new HashEntry("Id", model.Id),
+                new HashEntry("FirstName", (RedisValue)model.FirstName),
+                new HashEntry("LastName", (RedisValue)model.LastName),
+                new HashEntry("Email", (RedisValue)model.Email),
+                new HashEntry("Mobile", (RedisValue)model.Mobile),
+                new HashEntry("Age", model.Age),
+                new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, UserDtoJsonSerializer.Default.Options)),
+                new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, UserDtoJsonSerializer.Default.Options)),
+                new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, UserDtoJsonSerializer.Default.Options))
+            };
+    }
 
-        [Benchmark(Description = "HashEntries generated by Source Generator")]
-        public void SourceGenerator()
-        {
-            foreach (var model in models)
+    [Benchmark(Description = "Write: Array + JsonSerializerContext")]
+    public void Write_Array2()
+    {
+        foreach (var model in models)
+            _ = new[]
             {
-                var hashEntries = model.ToHashEntries(UserDtoJsonSerializer.Default.Options);
-                database.HashSet("set-source", hashEntries, CommandFlags.None);
-            }
-        }
+                new HashEntry("Id", model.Id),
+                new HashEntry("FirstName", (RedisValue)model.FirstName),
+                new HashEntry("LastName", (RedisValue)model.LastName),
+                new HashEntry("Email", (RedisValue)model.Email),
+                new HashEntry("Mobile", (RedisValue)model.Mobile),
+                new HashEntry("Age", model.Age),
+                new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, UserDtoJsonSerializer.Default.UserRoleTypeArray)),
+                new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, UserDtoJsonSerializer.Default.StringArray)),
+                new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, UserDtoJsonSerializer.Default.DictionaryStringString))
+            };
+    }
 
-        // [Benchmark(Description = "HashEntries generated by Reflection")]
-        // public void Reflection()
-        // {
-        //     foreach (var model in models)
-        //     {
-        //         database.HashSetAll("set-reflection", model, null, flags: CommandFlags.None);
-        //     }
-        // }
+    [Benchmark(Description = "Write: Source Generator")]
+    public void Write_SourceGen0()
+    {
+        foreach (var model in models) _ = model.GetHashEntries();
+    }
+
+    [Benchmark(Description = "Write: Source Generator + JsonSerializerOptions")]
+    public void Write_SourceGen1()
+    {
+        foreach (var model in models) _ = model.GetHashEntries(UserDtoJsonSerializer.Default.Options);
+    }
+
+    [Benchmark(Description = "Write: Source Generator + JsonSerializerContext")]
+    public void Write_SourceGen2()
+    {
+        foreach (var model in models) _ = model.GetHashEntries(UserDtoJsonSerializer.Default);
+    }
+
+    [Benchmark(Description = "Write: Reflection + JsonSerializerOptions")]
+    public void Write_Reflection()
+    {
+        foreach (var model in models) _ = MapCache.GetHashEntries(model, UserDtoJsonSerializer.Default.Options);
+    }
+}
+
+[SimpleJob(RuntimeMoniker.Net90)]
+[MemoryDiagnoser]
+[ThreadingDiagnoser]
+[GcServer(true)]
+public class ReadBenchmark
+{
+    private HashEntry[] hashEntries;
+    [Params(10_000)] public int N;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        hashEntries = new[]
+        {
+            new HashEntry("Id", 1),
+            new HashEntry("FirstName", (RedisValue)"Arash"),
+            new HashEntry("LastName", (RedisValue)"Shabbeh"),
+            new HashEntry("Email", (RedisValue)"arash.shabbeh@gmail.com"),
+            new HashEntry("Mobile", (RedisValue)"09123456789"),
+            new HashEntry("Age", 34),
+            new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { UserRoleType.Admin, UserRoleType.User }, UserDtoJsonSerializer.Default.UserRoleTypeArray)),
+            new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { "super-admin", "moderator", "super-user", "developer" }, UserDtoJsonSerializer.Default.StringArray)),
+            new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, string>
+            {
+                ["nationality"] = "Iranian",
+                ["countryOfResidence"] = "Turkey",
+                ["age"] = "34"
+            }, UserDtoJsonSerializer.Default.DictionaryStringString))
+        };
+    }
+
+    [Benchmark(Baseline = true, Description = "Read: Source Generator")]
+    public void Read_SourceGen0()
+    {
+        for (var i = 0; i < N; i++) _ = UserDto.FromHashEntries(hashEntries);
+    }
+
+    [Benchmark(Description = "Read: Source Generator + JsonSerializerOptions")]
+    public void Read_SourceGen1()
+    {
+        for (var i = 0; i < N; i++) _ = UserDto.FromHashEntries(hashEntries, UserDtoJsonSerializer.Default.Options);
+    }
+
+    [Benchmark(Description = "Read: Source Generator + JsonSerializerContext")]
+    public void Read_SourceGen2()
+    {
+        for (var i = 0; i < N; i++) _ = UserDto.FromHashEntries(hashEntries, UserDtoJsonSerializer.Default);
+    }
+
+    [Benchmark(Description = "Read: Reflection + JsonSerializerOptions")]
+    public void Read_Reflection()
+    {
+        for (var i = 0; i < N; i++) _ = hashEntries.TryDeserialize<UserDto>(UserDtoJsonSerializer.Default.Options, out _);
     }
 }

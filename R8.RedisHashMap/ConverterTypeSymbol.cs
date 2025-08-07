@@ -19,27 +19,23 @@ namespace R8.RedisHashMap
         public ITypeSymbol ConverterType { get; }
         public TypeSymbol TargetType { get; }
 
+        public bool Equals(ConverterTypeSymbol? other)
+        {
+            if (ReferenceEquals(null, other)) return false;
+            if (ReferenceEquals(this, other)) return true;
+            return SymbolEqualityComparer.Default.Equals(ConverterType, other.ConverterType) && TargetType.Equals(other.TargetType);
+        }
+
         private static string GetName(string name)
         {
             var name2 = name;
-            if (name2.EndsWith("Converter"))
-            {
-                name2 = name2.Split("Converter")[0];
-            }
+            if (name2.EndsWith("Converter")) name2 = name2.Split("Converter")[0];
 
             if (name2.StartsWith("RedisValue"))
-            {
                 name2 = name2.Split("RedisValue")[1];
-            }
-            else if (name.StartsWith("Redis"))
-            {
-                name2 = name2.Split("Redis")[1];
-            }
+            else if (name.StartsWith("Redis")) name2 = name2.Split("Redis")[1];
 
-            if (name2.EndsWith("Redis"))
-            {
-                name2 = name2.Split("Redis")[0];
-            }
+            if (name2.EndsWith("Redis")) name2 = name2.Split("Redis")[0];
 
             if (string.IsNullOrEmpty(name2))
                 return name;
@@ -76,13 +72,6 @@ namespace R8.RedisHashMap
             return new ConverterTypeSymbol(converterTypeSymbol, targetTypeSymbol);
         }
 
-        public bool Equals(ConverterTypeSymbol? other)
-        {
-            if (ReferenceEquals(null, other)) return false;
-            if (ReferenceEquals(this, other)) return true;
-            return SymbolEqualityComparer.Default.Equals(ConverterType, other.ConverterType) && TargetType.Equals(other.TargetType);
-        }
-
         public override bool Equals(object? obj)
         {
             return obj is ConverterTypeSymbol other && Equals(other);
@@ -90,7 +79,7 @@ namespace R8.RedisHashMap
 
         public override int GetHashCode()
         {
-            return SymbolEqualityComparer.Default.GetHashCode(ConverterType) ^ 
+            return SymbolEqualityComparer.Default.GetHashCode(ConverterType) ^
                    TargetType.GetHashCode();
         }
 

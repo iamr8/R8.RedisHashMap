@@ -1,7 +1,5 @@
-using System;
 using System.Collections;
-using System.Collections.Generic;
-using System.Linq;
+using System.Diagnostics.CodeAnalysis;
 using System.Text;
 using System.Text.Json;
 using StackExchange.Redis;
@@ -10,6 +8,13 @@ namespace R8.RedisHashMap.Test.Map;
 
 public static class MapCache
 {
+    private static readonly byte[][] IgnoredValues =
+    {
+        Encoding.UTF8.GetBytes("\"\""),
+        Encoding.UTF8.GetBytes("null"),
+        Encoding.UTF8.GetBytes("\"null\"")
+    };
+
     public static void HashSetAll<TModel>(this IDatabase databaseConnection, RedisKey cacheKey, TModel model, JsonSerializerOptions serializerOptions, CommandFlags flags = CommandFlags.FireAndForget)
     {
         if (model == null)
@@ -24,7 +29,7 @@ public static class MapCache
 
         var he = hashEntries.Where(x => x.Value.IsNullOrEmpty == false).ToArray();
 
-        databaseConnection.HashSet(cacheKey, he, flags: flags);
+        databaseConnection.HashSet(cacheKey, he, flags);
     }
 
     internal static IList<HashEntry> GetHashEntries<TModel>(TModel model, JsonSerializerOptions serializerOptions)
@@ -135,10 +140,123 @@ public static class MapCache
         }
     }
 
-    private static readonly byte[][] IgnoredValues =
+    private static object Deserialize(this RedisValue redisValue, Type propertyType, JsonSerializerOptions serializerOptions)
     {
-        Encoding.UTF8.GetBytes("\"\""),
-        Encoding.UTF8.GetBytes("null"),
-        Encoding.UTF8.GetBytes("\"null\"")
-    };
+        if (redisValue.IsNullOrEmpty)
+            return default;
+
+        object key;
+        if (propertyType == typeof(RedisValue))
+        {
+            key = redisValue;
+        }
+        else if (propertyType == typeof(byte[]))
+        {
+            key = (byte[])redisValue;
+        }
+        else if (propertyType == typeof(string))
+        {
+            var str = redisValue.ToString();
+            if (!str.StartsWith("\""))
+                str = $"\"{str}\"";
+            if (!str.EndsWith("\""))
+                str += "\"";
+            key = JsonSerializer.Deserialize(str, propertyType, serializerOptions);
+        }
+        else
+        {
+            key = JsonSerializer.Deserialize(((ReadOnlyMemory<byte>)redisValue).Span, propertyType, serializerOptions);
+        }
+
+        return key;
+    }
+
+    public static Type GetUnderlyingType(this Type type, bool ignoreNullability = true)
+    {
+        if (type == null)
+            throw new ArgumentNullException(nameof(type));
+
+        var resultType = type.GetEnumerableUnderlyingType() ?? type;
+        if (ignoreNullability)
+            resultType = Nullable.GetUnderlyingType(resultType) ?? resultType;
+
+        return resultType;
+    }
+
+    public static Type GetEnumerableUnderlyingType(this Type type)
+    {
+        return type.GetGenericUnderlyingType(typeof(IList<>));
+    }
+
+    public static Type GetGenericUnderlyingType(this Type type, Type genericType)
+    {
+        if (type == null)
+            throw new ArgumentNullException(nameof(type));
+
+        var interfaces = type.GetInterfaces();
+        if (interfaces.Length == 0)
+            return null;
+
+        var underlyingType = interfaces
+            .Select(interfaceType => new
+            {
+                Interface = interfaceType,
+                HasGeneric = interfaceType.IsGenericType && interfaceType.GetGenericTypeDefinition() == genericType
+            })
+            .Where(tuple => tuple.HasGeneric)
+            .Select(tuple => tuple.Interface.GetGenericArguments())
+            .Where(genericTypes => genericTypes.Length > 0)
+            .Select(genericTypes => genericTypes[0])
+            .FirstOrDefault();
+
+        return underlyingType;
+    }
+
+    internal static bool TryDeserialize<T>(this HashEntry[] hashEntries, JsonSerializerOptions serializerOptions, [MaybeNullWhen(false)] out T model) where T : new()
+    {
+        var type = typeof(T);
+        type = type.IsValueType ? type.GetUnderlyingType() : type;
+        var props = type.GetCachedProperties();
+
+        model = default;
+        var output = new T();
+        var hit = 0;
+        foreach (var hashEntry in hashEntries)
+        {
+            if (!props.TryGetValue(hashEntry.Name, out var cachedProp))
+                continue;
+
+            var redisValue = hashEntry.Value;
+            if (cachedProp.IsRequired)
+            {
+                if (redisValue.IsNullOrEmpty)
+                    return false; // Required property is missed.
+            }
+            else
+            {
+                if (redisValue.IsNullOrEmpty)
+                    continue;
+            }
+
+            if (!cachedProp.HasSetMethod)
+                throw new InvalidOperationException($"Property '{cachedProp.Property.Name}' does not have a setter.");
+
+            try
+            {
+                var value = redisValue.Deserialize(cachedProp.PropertyType, serializerOptions);
+                cachedProp.Property.SetValue(output, value);
+                hit++;
+            }
+            catch (JsonException e)
+            {
+                throw new InvalidCastException($"Cannot convert RedisValue to {cachedProp.PropertyType.Name}.", e);
+            }
+        }
+
+        if (hit == 0)
+            return false; // No property is set.
+
+        model = output;
+        return true;
+    }
 }

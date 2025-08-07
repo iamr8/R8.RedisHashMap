@@ -4,22 +4,16 @@ namespace R8.RedisHashMap.Test.Converters;
 
 public class IdStringRedisConverter : RedisValueConverter<int>
 {
-    public override RedisValue ConvertToRedisValue(int value)
+    public override RedisValue ToRedisValue(int value)
     {
         return value.ToString();
     }
 
-    public override int ConvertFromRedisValue(RedisValue value)
+    public override int FromRedisValue(RedisValue value)
     {
-        if (value.IsNullOrEmpty)
-        {
-            return 0;
-        }
+        if (value.IsNullOrEmpty) return 0;
 
-        if (int.TryParse(value, out var result))
-        {
-            return result;
-        }
+        if (int.TryParse(value, out var result)) return result;
 
         throw new InvalidOperationException($"Cannot convert RedisValue '{value}' to int.");
     }

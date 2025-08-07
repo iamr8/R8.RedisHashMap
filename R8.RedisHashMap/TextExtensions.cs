@@ -8,9 +8,9 @@ namespace R8.RedisHashMap
         private static readonly Regex CamelCaseRegex = new Regex("(?:^|_| +)(.)", RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         /// <summary>
-        /// Returns a Camel Case <see cref="string"/> from a given <see cref="string"/>.
+        ///     Returns a Camel Case <see cref="string" /> from a given <see cref="string" />.
         /// </summary>
-        /// <returns>A <see cref="string"/> value in camel case.</returns>
+        /// <returns>A <see cref="string" /> value in camel case.</returns>
         /// <example>SomePropertyData => somePropertyData</example>
         /// <exception cref="ArgumentNullException">Thrown when the string is null or empty.</exception>
         public static string ToCamelCase(this string s)
@@ -54,13 +54,9 @@ namespace R8.RedisHashMap
             var lastIndex = 0;
             Span<char> span = stackalloc char[s.Length * 2];
             for (var i = 0; i < s.Length; i++)
-            {
                 if (char.IsUpper(s[i]))
                 {
-                    if (i > 0 && char.IsLower(s[i - 1]))
-                    {
-                        span[lastIndex++] = '_';
-                    }
+                    if (i > 0 && char.IsLower(s[i - 1])) span[lastIndex++] = '_';
 
                     span[lastIndex++] = char.ToLowerInvariant(s[i]);
                 }
@@ -68,8 +64,7 @@ namespace R8.RedisHashMap
                 {
                     span[lastIndex++] = s[i];
                 }
-            }
-            
+
             return new string(span.Slice(0, lastIndex));
         }
     }

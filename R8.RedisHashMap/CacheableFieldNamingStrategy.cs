@@ -4,6 +4,6 @@ namespace R8.RedisHashMap
     {
         PascalCase = 0,
         CamelCase = 1,
-        SnakeCase = 2,
+        SnakeCase = 2
     }
 }

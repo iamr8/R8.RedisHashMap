@@ -1,33 +1,41 @@
-using System;
 using StackExchange.Redis;
 
 namespace R8.RedisHashMap
 {
+    /// <summary>
+    ///     Represents an abstract base class for converting values between
+    ///     application-defined types and Redis-compatible representations.
+    /// </summary>
     public abstract class RedisValueConverter
     {
     }
 
-    public abstract class RedisValueConverter<T> : RedisValueConverter, IRedisValueConverter<T>
-    {
-        public abstract RedisValue ConvertToRedisValue(T value);
-
-        public abstract T ConvertFromRedisValue(RedisValue value);
-    }
-
-    public interface IRedisValueConverter<T>
+    /// <summary>
+    ///     Serves as the base class for converting application-defined types to and from
+    ///     Redis-compatible values, enabling seamless interaction with Redis data structures.
+    /// </summary>
+    /// <typeparam name="T">The type of the value to be converted.</typeparam>
+    public abstract class RedisValueConverter<T> : RedisValueConverter
     {
         /// <summary>
-        /// Returns a <see cref="RedisValue"/> from <typeparamref name="T"/> value.
+        ///     Initializes a new instance of the <see cref="RedisValueConverter{T}" /> class.
         /// </summary>
-        /// <param name="value">The value to convert.</param>
-        /// <returns>A <see cref="RedisValue"/> from <typeparamref name="T"/> value.</returns>
-        RedisValue ConvertToRedisValue(T value);
+        public RedisValueConverter()
+        {
+        }
 
         /// <summary>
-        /// Returns a <typeparamref name="T"/> from <see cref="RedisValue"/> value.
+        ///     Converts a value of type <typeparamref name="T" /> to a Redis-compatible <see cref="RedisValue" />.
         /// </summary>
-        /// <param name="value">The value to convert.</param>
-        /// <returns>A <typeparamref name="T"/> from <see cref="RedisValue"/> value.</returns>
-        T ConvertFromRedisValue(RedisValue value);
+        /// <param name="value">The value of type <typeparamref name="T" /> to be converted to a Redis-compatible format.</param>
+        /// <returns>A <see cref="RedisValue" /> representation of the given value.</returns>
+        public abstract RedisValue ToRedisValue(T value);
+
+        /// <summary>
+        ///     Converts a given <see cref="RedisValue" /> to its corresponding value of type <typeparamref name="T" />.
+        /// </summary>
+        /// <param name="value">The <see cref="RedisValue" /> to be converted to a value of type <typeparamref name="T" />.</param>
+        /// <returns>The converted value of type <typeparamref name="T" />.</returns>
+        public abstract T FromRedisValue(RedisValue value);
     }
 }

@@ -1,6 +1,4 @@
-using System;
 using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.Reflection;
 using System.Text.Json.Serialization;
 using StackExchange.Redis;
@@ -12,10 +10,10 @@ public static class TypeReflections
     private static readonly ConcurrentDictionary<Type, IReadOnlyDictionary<RedisValue, CachedPropertyInfo>> CachedTypes = new();
 
     /// <summary>
-    /// Returns properties of a type.
+    ///     Returns properties of a type.
     /// </summary>
-    /// <param name="type">A <see cref="Type"/> to get properties from.</param>
-    /// <returns>An array of public <see cref="PropertyInfo"/>s.</returns>
+    /// <param name="type">A <see cref="Type" /> to get properties from.</param>
+    /// <returns>An array of public <see cref="PropertyInfo" />s.</returns>
     /// <exception cref="ArgumentNullException">When the type is null.</exception>
     internal static IReadOnlyDictionary<RedisValue, CachedPropertyInfo> GetCachedProperties(this Type type)
     {
@@ -27,13 +25,11 @@ public static class TypeReflections
         ExtractProperties(concreteProperties);
 
         if (type.IsInterface)
-        {
             foreach (var interfaceType in type.GetInterfaces())
             {
                 var interfaceProperties = interfaceType.GetProperties(BindingFlags.Public | BindingFlags.Instance);
                 ExtractProperties(interfaceProperties);
             }
-        }
 
         CachedTypes.TryAdd(type, dict);
         return dict;

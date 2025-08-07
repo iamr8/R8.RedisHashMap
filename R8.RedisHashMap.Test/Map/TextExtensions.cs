@@ -7,8 +7,10 @@ namespace R8.RedisHashMap.Test.Map;
 
 public static class TextExtensions
 {
+    private static readonly Regex CamelCaseRegex = new("(?:^|_| +)(.)", RegexOptions.Compiled);
+
     /// <summary>
-    /// Removes all non-alphanumeric characters from a string.
+    ///     Removes all non-alphanumeric characters from a string.
     /// </summary>
     [return: NotNullIfNotNull("str")]
     public static string Unaccent(this string str)
@@ -21,10 +23,7 @@ public static class TextExtensions
 
     private static ReadOnlySpan<char> Initialize(this Span<char> span, string source)
     {
-        for (int i = 0; i < source.Length; i++)
-        {
-            span[i] = source[i];
-        }
+        for (var i = 0; i < source.Length; i++) span[i] = source[i];
 
         return span;
     }
@@ -47,7 +46,7 @@ public static class TextExtensions
     }
 
     /// <summary>
-    /// Determines whether the given text is right-to-left.
+    ///     Determines whether the given text is right-to-left.
     /// </summary>
     public static bool IsRightToLeft(this string text, double ratio = 0.3)
     {
@@ -61,19 +60,16 @@ public static class TextExtensions
         if (IsRtlCharacter(text[0]))
             return true;
 
-        int rtlCharacters = 0;
-        int totalCharacters = 0;
+        var rtlCharacters = 0;
+        var totalCharacters = 0;
 
         // Use stackalloc to create a ReadOnlySpan<char> from the input text
-        int length = text.Length;
-        ReadOnlySpan<char> span = text.Length <= 128 ? stackalloc char[length].Initialize(text) : text;
+        var length = text.Length;
+        var span = text.Length <= 128 ? stackalloc char[length].Initialize(text) : text;
 
-        foreach (char c in span)
+        foreach (var c in span)
         {
-            if (IsRtlCharacter(c))
-            {
-                rtlCharacters++;
-            }
+            if (IsRtlCharacter(c)) rtlCharacters++;
 
             totalCharacters++;
         }
@@ -81,14 +77,14 @@ public static class TextExtensions
         if (totalCharacters == 0)
             return false;
 
-        double rtlRatio = (double)rtlCharacters / totalCharacters;
+        var rtlRatio = (double)rtlCharacters / totalCharacters;
 
         return rtlRatio > ratio;
     }
 
     private static bool IsRtlCharacter(char c)
     {
-        UnicodeCategory category = CharUnicodeInfo.GetUnicodeCategory(c);
+        var category = CharUnicodeInfo.GetUnicodeCategory(c);
 
         return ((c >= 0x0591 && c <= 0x07FF) || // Hebrew and Arabic blocks
                 (c >= 0xFB1D && c <= 0xFB4F) || // Hebrew presentation forms
@@ -109,7 +105,7 @@ public static class TextExtensions
     }
 
     /// <summary>
-    /// Converts " " to "%20".
+    ///     Converts " " to "%20".
     /// </summary>
     /// <returns></returns>
     public static string Urlify(this string s)
@@ -120,7 +116,7 @@ public static class TextExtensions
     }
 
     /// <summary>
-    /// Converts a string to a slug.
+    ///     Converts a string to a slug.
     /// </summary>
     /// <exception cref="ArgumentNullException"></exception>
     public static string Slugify(this string s)
@@ -129,7 +125,7 @@ public static class TextExtensions
             throw new ArgumentNullException(nameof(s));
 
         // Remove Accent
-        byte[] bytes = Encoding.UTF8.GetBytes(s);
+        var bytes = Encoding.UTF8.GetBytes(s);
         var str = Encoding.ASCII.GetString(bytes);
 
         str = str.ToLower();
@@ -148,14 +144,14 @@ public static class TextExtensions
     }
 
     /// <summary>
-    /// Returns a <see cref="string"/> between to given characters.
+    ///     Returns a <see cref="string" /> between to given characters.
     /// </summary>
-    /// <param name="str">A <see cref="string"/> value to check in</param>
-    /// <param name="start">Starting <see cref="char"/></param>
-    /// <param name="end">Ending <see cref="char"/></param>
+    /// <param name="str">A <see cref="string" /> value to check in</param>
+    /// <param name="start">Starting <see cref="char" /></param>
+    /// <param name="end">Ending <see cref="char" /></param>
     /// <exception cref="ArgumentNullException">Thrown when the string is null or empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the start or end characters are less than or equal to 0.</exception>
-    /// <returns>A <see cref="string"/> between two characters.</returns>
+    /// <returns>A <see cref="string" /> between two characters.</returns>
     public static string GetStringBetween(this string str, char start, char end)
     {
         if (str == null)
@@ -172,14 +168,14 @@ public static class TextExtensions
     }
 
     /// <summary>
-    /// Returns a <see cref="string"/> between to given strings.
+    ///     Returns a <see cref="string" /> between to given strings.
     /// </summary>
-    /// <param name="str">A <see cref="string"/> value to check in</param>
-    /// <param name="start">Starting <see cref="string"/></param>
-    /// <param name="end">Ending <see cref="string"/></param>
+    /// <param name="str">A <see cref="string" /> value to check in</param>
+    /// <param name="start">Starting <see cref="string" /></param>
+    /// <param name="end">Ending <see cref="string" /></param>
     /// <exception cref="ArgumentNullException">Thrown when the string is null or empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the start or end strings are null or empty.</exception>
-    /// <returns>A <see cref="string"/> between two strings.</returns>
+    /// <returns>A <see cref="string" /> between two strings.</returns>
     public static string GetStringBetween(this string str, string start, string end)
     {
         if (str == null)
@@ -201,12 +197,10 @@ public static class TextExtensions
         return str.Substring(startIndex, endIndex - startIndex);
     }
 
-    private static readonly Regex CamelCaseRegex = new("(?:^|_| +)(.)", RegexOptions.Compiled);
-
     /// <summary>
-    /// Returns a Camel Case <see cref="string"/> from a given <see cref="string"/>.
+    ///     Returns a Camel Case <see cref="string" /> from a given <see cref="string" />.
     /// </summary>
-    /// <returns>A <see cref="string"/> value in camel case.</returns>
+    /// <returns>A <see cref="string" /> value in camel case.</returns>
     /// <example>SomePropertyData => somePropertyData</example>
     /// <exception cref="ArgumentNullException">Thrown when the string is null or empty.</exception>
     public static string ToCamelCase(this string s)
@@ -243,7 +237,7 @@ public static class TextExtensions
     }
 
     /// <summary>
-    /// Returns specific index of given value in string.
+    ///     Returns specific index of given value in string.
     /// </summary>
     /// <exception cref="ArgumentNullException"></exception>
     /// <exception cref="ArgumentOutOfRangeException"></exception>
@@ -289,18 +283,18 @@ public static class TextExtensions
     }
 
     /// <summary>
-    /// Truncates a string to a given number of words.
+    ///     Truncates a string to a given number of words.
     /// </summary>
     public static string TruncateWords(this string value, int wordLimit)
     {
         if (string.IsNullOrEmpty(value))
             return value;
 
-        string[] lines = value.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+        var lines = value.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
         var truncated = new StringBuilder();
-        int wordCount = 0;
+        var wordCount = 0;
 
-        int totalWords = value.Split(' ').Length;
+        var totalWords = value.Split(' ').Length;
         if (totalWords <= wordLimit)
             return value;
 
@@ -309,7 +303,7 @@ public static class TextExtensions
             if (startIndex == -1)
                 return -1;
 
-            int index = startIndex;
+            var index = startIndex;
             while (index < input.Length)
             {
                 index = input.IndexOf('.', index);
@@ -325,7 +319,7 @@ public static class TextExtensions
             return input.Length - 1;
         }
 
-        foreach (string line in lines)
+        foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line))
             {
@@ -344,8 +338,8 @@ public static class TextExtensions
                 }
                 else
                 {
-                    int lastIndex = truncated.Length;
-                    int nextDotIndex = -1;
+                    var lastIndex = truncated.Length;
+                    var nextDotIndex = -1;
                     var restOfValue = string.Empty;
                     var endOfValue = false;
                     foreach (var p in new[] { '.', '\n' })

@@ -8,8 +8,12 @@ namespace R8.RedisHashMap
         public INamedTypeSymbol TypeSymbol { get; set; }
         public TypeSymbol ObjectTypeSymbol { get; set; }
         public CacheableFieldNamingStrategy NamingStrategy { get; set; }
+        public CacheableGenerationMode GenerationMode { get; set; }
         public ImmutableArray<TypeSymbol> Properties { get; set; }
         public string FullQualifiedName { get; set; }
         public string AssemblyName { get; set; }
+        public string Namespace { get; set; }
+        public string DisplayName { get; set; }
+        public string AccessibilityModifier { get; set; }
     }
 }
