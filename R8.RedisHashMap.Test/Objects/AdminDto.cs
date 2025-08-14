@@ -1,7 +1,7 @@
 using R8.RedisHashMap.Test.Converters;
 using R8.RedisHashMap.Test.Models;
 
-namespace R8.RedisHashMap.Test;
+namespace R8.RedisHashMap.Test.Objects;
 
 [CacheObject(
     NamingStrategy = CacheableFieldNamingStrategy.SnakeCase,

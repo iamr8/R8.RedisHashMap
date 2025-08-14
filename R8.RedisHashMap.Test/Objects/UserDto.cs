@@ -1,12 +1,13 @@
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using R8.RedisHashMap.Test.Converters;
 using R8.RedisHashMap.Test.Models;
 
-namespace R8.RedisHashMap.Test;
+namespace R8.RedisHashMap.Test.Objects;
 
 [CacheObject(
     NamingStrategy = CacheableFieldNamingStrategy.SnakeCase,
-    GenerationMode = CacheableGenerationMode.Default
+    GenerationMode = CacheableGenerationMode.Serialization
 )]
 public partial class UserDto
 {
@@ -54,4 +55,9 @@ public partial class UserDto
     // public TimeSpan Duration { get; set; }
     //
     // public TimeSpan? DurationNullable { get; set; }
+}
+
+[JsonSerializable(typeof(UserDto))]
+public partial class UserDtoJsonSerializer : JsonSerializerContext
+{
 }

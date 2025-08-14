@@ -24,7 +24,7 @@ public class Class1
 public class WriteBenchmark
 {
     private ConnectionMultiplexer connectionMultiplexer;
-    private UserDto[] models;
+    private Objects.UserDto[] models;
 
     [Params(10_000)] public int N;
 
@@ -32,7 +32,7 @@ public class WriteBenchmark
     public void Setup()
     {
         models = Enumerable.Range(0, N)
-            .Select(x => new UserDto
+            .Select(x => new Objects.UserDto
             {
                 Id = x,
                 FirstName = $"Arash {x}",
@@ -63,9 +63,9 @@ public class WriteBenchmark
                 new HashEntry("Email", (RedisValue)model.Email),
                 new HashEntry("Mobile", (RedisValue)model.Mobile),
                 new HashEntry("Age", model.Age),
-                new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, UserDtoJsonSerializer.Default.Options)),
-                new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, UserDtoJsonSerializer.Default.Options)),
-                new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, UserDtoJsonSerializer.Default.Options))
+                new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, Objects.UserDtoJsonSerializer.Default.Options)),
+                new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, Objects.UserDtoJsonSerializer.Default.Options)),
+                new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, Objects.UserDtoJsonSerializer.Default.Options))
             };
     }
 
@@ -81,35 +81,35 @@ public class WriteBenchmark
                 new HashEntry("Email", (RedisValue)model.Email),
                 new HashEntry("Mobile", (RedisValue)model.Mobile),
                 new HashEntry("Age", model.Age),
-                new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, UserDtoJsonSerializer.Default.UserRoleTypeArray)),
-                new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, UserDtoJsonSerializer.Default.StringArray)),
-                new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, UserDtoJsonSerializer.Default.DictionaryStringString))
+                new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Roles, Objects.UserDtoJsonSerializer.Default.UserRoleTypeArray)),
+                new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Tags, Objects.UserDtoJsonSerializer.Default.StringArray)),
+                new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, Objects.UserDtoJsonSerializer.Default.DictionaryStringString))
             };
     }
-
-    [Benchmark(Description = "Write: Source Generator")]
-    public void Write_SourceGen0()
-    {
-        foreach (var model in models) _ = model.GetHashEntries();
-    }
-
-    [Benchmark(Description = "Write: Source Generator + JsonSerializerOptions")]
-    public void Write_SourceGen1()
-    {
-        foreach (var model in models) _ = model.GetHashEntries(UserDtoJsonSerializer.Default.Options);
-    }
-
-    [Benchmark(Description = "Write: Source Generator + JsonSerializerContext")]
-    public void Write_SourceGen2()
-    {
-        foreach (var model in models) _ = model.GetHashEntries(UserDtoJsonSerializer.Default);
-    }
-
-    [Benchmark(Description = "Write: Reflection + JsonSerializerOptions")]
-    public void Write_Reflection()
-    {
-        foreach (var model in models) _ = MapCache.GetHashEntries(model, UserDtoJsonSerializer.Default.Options);
-    }
+    //
+    // [Benchmark(Description = "Write: Source Generator")]
+    // public void Write_SourceGen0()
+    // {
+    //     foreach (var model in models) _ = model.GetHashEntries();
+    // }
+    //
+    // [Benchmark(Description = "Write: Source Generator + JsonSerializerOptions")]
+    // public void Write_SourceGen1()
+    // {
+    //     foreach (var model in models) _ = model.GetHashEntries(Objects.UserDtoJsonSerializer.Default.Options);
+    // }
+    //
+    // [Benchmark(Description = "Write: Source Generator + JsonSerializerContext")]
+    // public void Write_SourceGen2()
+    // {
+    //     foreach (var model in models) _ = model.GetHashEntries(Objects.UserDtoJsonSerializer.Default);
+    // }
+    //
+    // [Benchmark(Description = "Write: Reflection + JsonSerializerOptions")]
+    // public void Write_Reflection()
+    // {
+    //     foreach (var model in models) _ = MapCache.GetHashEntries(model, Objects.UserDtoJsonSerializer.Default.Options);
+    // }
 }
 
 [SimpleJob(RuntimeMoniker.Net90)]
@@ -132,38 +132,38 @@ public class ReadBenchmark
             new HashEntry("Email", (RedisValue)"arash.shabbeh@gmail.com"),
             new HashEntry("Mobile", (RedisValue)"09123456789"),
             new HashEntry("Age", 34),
-            new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { UserRoleType.Admin, UserRoleType.User }, UserDtoJsonSerializer.Default.UserRoleTypeArray)),
-            new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { "super-admin", "moderator", "super-user", "developer" }, UserDtoJsonSerializer.Default.StringArray)),
+            new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { UserRoleType.Admin, UserRoleType.User }, Objects.UserDtoJsonSerializer.Default.UserRoleTypeArray)),
+            new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { "super-admin", "moderator", "super-user", "developer" }, Objects.UserDtoJsonSerializer.Default.StringArray)),
             new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, string>
             {
                 ["nationality"] = "Iranian",
                 ["countryOfResidence"] = "Turkey",
                 ["age"] = "34"
-            }, UserDtoJsonSerializer.Default.DictionaryStringString))
+            }, Objects.UserDtoJsonSerializer.Default.DictionaryStringString))
         };
     }
-
-    [Benchmark(Baseline = true, Description = "Read: Source Generator")]
-    public void Read_SourceGen0()
-    {
-        for (var i = 0; i < N; i++) _ = UserDto.FromHashEntries(hashEntries);
-    }
-
-    [Benchmark(Description = "Read: Source Generator + JsonSerializerOptions")]
-    public void Read_SourceGen1()
-    {
-        for (var i = 0; i < N; i++) _ = UserDto.FromHashEntries(hashEntries, UserDtoJsonSerializer.Default.Options);
-    }
-
-    [Benchmark(Description = "Read: Source Generator + JsonSerializerContext")]
-    public void Read_SourceGen2()
-    {
-        for (var i = 0; i < N; i++) _ = UserDto.FromHashEntries(hashEntries, UserDtoJsonSerializer.Default);
-    }
-
-    [Benchmark(Description = "Read: Reflection + JsonSerializerOptions")]
-    public void Read_Reflection()
-    {
-        for (var i = 0; i < N; i++) _ = hashEntries.TryDeserialize<UserDto>(UserDtoJsonSerializer.Default.Options, out _);
-    }
+    //
+    // [Benchmark(Baseline = true, Description = "Read: Source Generator")]
+    // public void Read_SourceGen0()
+    // {
+    //     for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries);
+    // }
+    //
+    // [Benchmark(Description = "Read: Source Generator + JsonSerializerOptions")]
+    // public void Read_SourceGen1()
+    // {
+    //     for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries, Objects.UserDtoJsonSerializer.Default.Options);
+    // }
+    //
+    // [Benchmark(Description = "Read: Source Generator + JsonSerializerContext")]
+    // public void Read_SourceGen2()
+    // {
+    //     for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries, Objects.UserDtoJsonSerializer.Default);
+    // }
+    //
+    // [Benchmark(Description = "Read: Reflection + JsonSerializerOptions")]
+    // public void Read_Reflection()
+    // {
+    //     for (var i = 0; i < N; i++) _ = hashEntries.TryDeserialize<Objects.UserDto>(Objects.UserDtoJsonSerializer.Default.Options, out _);
+    // }
 }
