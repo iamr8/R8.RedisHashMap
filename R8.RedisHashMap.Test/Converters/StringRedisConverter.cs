@@ -4,12 +4,12 @@ namespace R8.RedisHashMap.Test.Converters;
 
 public class StringRedisConverter : RedisValueConverter<string>
 {
-    public override RedisValue ToRedisValue(string value)
+    public override RedisValue GetBytes(string value)
     {
         return value;
     }
 
-    public override string FromRedisValue(RedisValue value)
+    public override string Parse(RedisValue value)
     {
         return value.IsNullOrEmpty ? null : (string)value;
     }

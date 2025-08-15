@@ -4,12 +4,12 @@ namespace R8.RedisHashMap.Test.Converters;
 
 public class IdStringRedisConverter : RedisValueConverter<int>
 {
-    public override RedisValue ToRedisValue(int value)
+    public override RedisValue GetBytes(int value)
     {
         return value.ToString();
     }
 
-    public override int FromRedisValue(RedisValue value)
+    public override int Parse(RedisValue value)
     {
         if (value.IsNullOrEmpty) return 0;
 

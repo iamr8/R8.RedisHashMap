@@ -97,6 +97,10 @@ namespace R8.RedisHashMap
         public bool IsDictionary { get; }
         public bool IsJsonDocument { get; }
         public bool IsJsonElement { get; }
+        public bool HasJsonTypeInfo { get; private set; }
+        public bool HasUtf8JsonWriter { get; private set; }
+        public bool HasArrayBufferWriter { get; private set; }
+
         public ConverterTypeSymbol? Converter { get; }
 
         public bool Equals(TypeSymbol other)
@@ -283,7 +287,7 @@ namespace R8.RedisHashMap
             if (TryGetConverter(out converter))
             {
                 var hasDotValue = IsNullable && IsValueType;
-                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.ToRedisValue)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
+                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.GetBytes)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
                     if (!redis_{propertySymbol.Name}.{nameof(RedisValue.IsNullOrEmpty)})
                     {{
                         {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});
@@ -297,30 +301,49 @@ namespace R8.RedisHashMap
             if (IsReadOnlyMemory) return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
 
             if (IsJsonElement)
-                return $@"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}(bufferWriter, jsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
+            {
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return $@"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}(bufferWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             if (IsJsonDocument)
-                return @$"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}(bufferWriter, jsonWriter, {valueIdentifier}.RootElement);
+            {
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return @$"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}(bufferWriter, {valueIdentifier}.RootElement);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             if (IsValueType) // User-defined struct
-                return $@"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}<{Type}>(bufferWriter, jsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, serializerOptions);
+            {
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return $@"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}<{Type}>(bufferWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, serializerOptions);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             if (IsString)
-                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}(bufferWriter, {valueIdentifier});
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
 
             if (IsBytesArray) return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
 
             if (IsReferenceType) // User-defined class
-                return $@"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}<{Type}>(bufferWriter, jsonWriter, {valueIdentifier}, serializerOptions);
+            {
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return $@"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}<{Type}>(bufferWriter, {valueIdentifier}, serializerOptions);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             return null;
         }
@@ -334,7 +357,7 @@ namespace R8.RedisHashMap
             if (TryGetConverter(out converter))
             {
                 var hasDotValue = IsNullable && IsValueType;
-                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.ToRedisValue)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
+                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.GetBytes)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
                     if (!redis_{propertySymbol.Name}.{nameof(RedisValue.IsNullOrEmpty)})
                     {{
                         {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});
@@ -348,32 +371,53 @@ namespace R8.RedisHashMap
             if (IsReadOnlyMemory) return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
 
             if (IsJsonElement)
-                return $@"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}(bufferWriter, jsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
+            {
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return $@"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}(bufferWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             if (IsJsonDocument)
-                return @$"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}(bufferWriter, jsonWriter, {valueIdentifier}.RootElement);
+            {
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return @$"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}(bufferWriter, {valueIdentifier}.RootElement);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             if (IsValueType) // User-defined struct
-                return $@"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    JsonTypeInfo<{Type}> jsonTypeInfo = GetJsonTypeInfo<{Type}>(serializerContext);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}<{Type}>(bufferWriter, jsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, jsonTypeInfo);
+            {
+                HasJsonTypeInfo = true;
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return $@"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    _jsonType_{propertySymbol.Name} ??= serializerContext.GetTypeInfo(typeof({Type})) as JsonTypeInfo<{Type}>;
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}<{Type}>(bufferWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, _jsonType_{propertySymbol.Name});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             if (IsString)
-                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}(bufferWriter, {valueIdentifier});
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
 
             if (IsBytesArray) return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
 
             if (IsReferenceType) // User-defined class
-                return $@"jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
-                    JsonTypeInfo<{Type}> jsonTypeInfo = GetJsonTypeInfo<{Type}>(serializerContext);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Serialize)}<{Type}>(bufferWriter, jsonWriter, {valueIdentifier}, jsonTypeInfo);
+            {
+                HasJsonTypeInfo = true;
+                HasUtf8JsonWriter = true;
+                HasArrayBufferWriter = true;
+                return $@"bufferWriter ??= GetArrayBufferWriter();
+                    jsonWriter ??= GetUtf8JsonWriter(bufferWriter);
+                    _jsonType_{propertySymbol.Name} ??= serializerContext.GetTypeInfo(typeof({Type})) as JsonTypeInfo<{Type}>;
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})jsonWriter.{nameof(RedisJsonSerializer.GetBytes)}<{Type}>(bufferWriter, {valueIdentifier}, _jsonType_{propertySymbol.Name});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
+            }
 
             return null;
         }
@@ -383,7 +427,7 @@ namespace R8.RedisHashMap
             var setter = $"obj.{propertySymbol.Name} = ";
             var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
 
-            if (TryGetConverter(out converter)) return $@"{setter}converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.FromRedisValue)}(entry.Value);";
+            if (TryGetConverter(out converter)) return $@"{setter}converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.Parse)}(entry.Value);";
 
             if (IsPrimitiveType) return $@"{setter}({typeIdentifier})entry.Value;";
 
@@ -391,19 +435,19 @@ namespace R8.RedisHashMap
 
             if (IsReadOnlyMemory) return $@"{setter}({nameof(ReadOnlyMemory<byte>)}<byte>)entry.Value;";
 
-            if (IsJsonElement) return $@"{setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.DeserializeToJsonElement)}(entry.Value);";
+            if (IsJsonElement) return $@"{setter}entry.Value.{nameof(RedisJsonSerializer.GetJsonElement)}();";
 
-            if (IsJsonDocument) return $@"{setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.DeserializeToJsonDocument)}(entry.Value);";
+            if (IsJsonDocument) return $@"{setter}entry.Value.{nameof(RedisJsonSerializer.GetJsonDocument)}();";
 
             if (IsValueType) // User-defined struct
-                return $@"{setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Deserialize)}<{Type}>(entry.Value, serializerOptions);";
+                return $@"{setter}entry.Value.{nameof(RedisJsonSerializer.Parse)}<{Type}>(serializerOptions);";
 
             if (IsString) return $@"{setter}(string?)entry.Value;";
 
             if (IsBytesArray) return $@"{setter}(byte[])entry.Value;";
 
             if (IsReferenceType) // User-defined class
-                return $@"{setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Deserialize)}<{Type}>(entry.Value, serializerOptions);";
+                return $@"{setter}entry.Value.{nameof(RedisJsonSerializer.Parse)}<{Type}>(serializerOptions);";
 
             return null;
         }
@@ -413,7 +457,7 @@ namespace R8.RedisHashMap
             var setter = $"obj.{propertySymbol.Name} = ";
             var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
 
-            if (TryGetConverter(out converter)) return $@"{setter}converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.FromRedisValue)}(entry.Value);";
+            if (TryGetConverter(out converter)) return $@"{setter}converter_{converter.ConverterName}.{nameof(RedisValueConverter<string>.Parse)}(entry.Value);";
 
             if (IsPrimitiveType) return $@"{setter}({typeIdentifier})entry.Value;";
 
@@ -421,21 +465,27 @@ namespace R8.RedisHashMap
 
             if (IsReadOnlyMemory) return $@"{setter}({nameof(ReadOnlyMemory<byte>)}<byte>)entry.Value;";
 
-            if (IsJsonElement) return $@"{setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.DeserializeToJsonElement)}(entry.Value);";
+            if (IsJsonElement) return $@"{setter}entry.Value.{nameof(RedisJsonSerializer.GetJsonElement)}();";
 
-            if (IsJsonDocument) return $@"{setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.DeserializeToJsonDocument)}(entry.Value);";
+            if (IsJsonDocument) return $@"{setter}entry.Value.{nameof(RedisJsonSerializer.GetJsonDocument)}();";
 
             if (IsValueType) // User-defined struct
-                return $@"JsonTypeInfo<{Type}> jsonTypeInfo = GetJsonTypeInfo<{Type}>(serializerContext);
-                        {setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Deserialize)}<{Type}>(entry.Value, jsonTypeInfo);";
+            {
+                HasJsonTypeInfo = true;
+                return $@"_jsonType_{propertySymbol.Name} ??= serializerContext.GetTypeInfo(typeof({Type})) as JsonTypeInfo<{Type}>;
+                        {setter}entry.Value.{nameof(RedisJsonSerializer.Parse)}<{Type}>(_jsonType_{propertySymbol.Name});";
+            }
 
             if (IsString) return $@"{setter}(string?)entry.Value;";
 
             if (IsBytesArray) return $@"{setter}(byte[])entry.Value;";
 
             if (IsReferenceType) // User-defined class
-                return $@"JsonTypeInfo<{Type}> jsonTypeInfo = GetJsonTypeInfo<{Type}>(serializerContext);
-                        {setter}{nameof(RedisJsonSerializer)}.{nameof(RedisJsonSerializer.Deserialize)}<{Type}>(entry.Value, jsonTypeInfo);";
+            {
+                HasJsonTypeInfo = true;
+                return $@"_jsonType_{propertySymbol.Name} ??= serializerContext.GetTypeInfo(typeof({Type})) as JsonTypeInfo<{Type}>;
+                        {setter}entry.Value.{nameof(RedisJsonSerializer.Parse)}<{Type}>(_jsonType_{propertySymbol.Name});";
+            }
 
             return null;
         }

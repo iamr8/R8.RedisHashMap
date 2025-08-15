@@ -12,11 +12,13 @@ public class Class1
 {
     public static void Main(string[] args)
     {
-        BenchmarkRunner.Run<WriteBenchmark>();
-        // BenchmarkRunner.Run<ReadBenchmark>();
+        // BenchmarkRunner.Run<WriteBenchmark>();
+        BenchmarkRunner.Run<ReadBenchmark>();
     }
 }
 
+[SimpleJob(RuntimeMoniker.Net60)]
+[SimpleJob(RuntimeMoniker.Net80)]
 [SimpleJob(RuntimeMoniker.Net90)]
 [MemoryDiagnoser]
 [ThreadingDiagnoser]
@@ -86,24 +88,24 @@ public class WriteBenchmark
                 new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(model.Data, Objects.UserDtoJsonSerializer.Default.DictionaryStringString))
             };
     }
-    //
-    // [Benchmark(Description = "Write: Source Generator")]
-    // public void Write_SourceGen0()
-    // {
-    //     foreach (var model in models) _ = model.GetHashEntries();
-    // }
-    //
-    // [Benchmark(Description = "Write: Source Generator + JsonSerializerOptions")]
-    // public void Write_SourceGen1()
-    // {
-    //     foreach (var model in models) _ = model.GetHashEntries(Objects.UserDtoJsonSerializer.Default.Options);
-    // }
-    //
-    // [Benchmark(Description = "Write: Source Generator + JsonSerializerContext")]
-    // public void Write_SourceGen2()
-    // {
-    //     foreach (var model in models) _ = model.GetHashEntries(Objects.UserDtoJsonSerializer.Default);
-    // }
+
+    [Benchmark(Description = "Write: Source Generator")]
+    public void Write_SourceGen0()
+    {
+        foreach (var model in models) _ = model.GetHashEntries();
+    }
+
+    [Benchmark(Description = "Write: Source Generator + JsonSerializerOptions")]
+    public void Write_SourceGen1()
+    {
+        foreach (var model in models) _ = model.GetHashEntries(Objects.UserDtoJsonSerializer.Default.Options);
+    }
+
+    [Benchmark(Description = "Write: Source Generator + JsonSerializerContext")]
+    public void Write_SourceGen2()
+    {
+        foreach (var model in models) _ = model.GetHashEntries(Objects.UserDtoJsonSerializer.Default);
+    }
     //
     // [Benchmark(Description = "Write: Reflection + JsonSerializerOptions")]
     // public void Write_Reflection()
@@ -112,6 +114,8 @@ public class WriteBenchmark
     // }
 }
 
+[SimpleJob(RuntimeMoniker.Net60)]
+[SimpleJob(RuntimeMoniker.Net80)]
 [SimpleJob(RuntimeMoniker.Net90)]
 [MemoryDiagnoser]
 [ThreadingDiagnoser]
@@ -142,28 +146,28 @@ public class ReadBenchmark
             }, Objects.UserDtoJsonSerializer.Default.DictionaryStringString))
         };
     }
-    //
-    // [Benchmark(Baseline = true, Description = "Read: Source Generator")]
-    // public void Read_SourceGen0()
-    // {
-    //     for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries);
-    // }
-    //
-    // [Benchmark(Description = "Read: Source Generator + JsonSerializerOptions")]
-    // public void Read_SourceGen1()
-    // {
-    //     for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries, Objects.UserDtoJsonSerializer.Default.Options);
-    // }
-    //
-    // [Benchmark(Description = "Read: Source Generator + JsonSerializerContext")]
-    // public void Read_SourceGen2()
-    // {
-    //     for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries, Objects.UserDtoJsonSerializer.Default);
-    // }
-    //
-    // [Benchmark(Description = "Read: Reflection + JsonSerializerOptions")]
-    // public void Read_Reflection()
-    // {
-    //     for (var i = 0; i < N; i++) _ = hashEntries.TryDeserialize<Objects.UserDto>(Objects.UserDtoJsonSerializer.Default.Options, out _);
-    // }
+    
+    [Benchmark(Baseline = true, Description = "Read: Source Generator")]
+    public void Read_SourceGen0()
+    {
+        for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries);
+    }
+    
+    [Benchmark(Description = "Read: Source Generator + JsonSerializerOptions")]
+    public void Read_SourceGen1()
+    {
+        for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries, Objects.UserDtoJsonSerializer.Default.Options);
+    }
+    
+    [Benchmark(Description = "Read: Source Generator + JsonSerializerContext")]
+    public void Read_SourceGen2()
+    {
+        for (var i = 0; i < N; i++) _ = Objects.UserDto.FromHashEntries(hashEntries, Objects.UserDtoJsonSerializer.Default);
+    }
+    
+    [Benchmark(Description = "Read: Reflection + JsonSerializerOptions")]
+    public void Read_Reflection()
+    {
+        for (var i = 0; i < N; i++) _ = hashEntries.TryDeserialize<Objects.UserDto>(Objects.UserDtoJsonSerializer.Default.Options, out _);
+    }
 }
