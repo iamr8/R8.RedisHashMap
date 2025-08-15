@@ -29,13 +29,13 @@ namespace R8.RedisHashMap
         /// </summary>
         /// <param name="value">The value of type <typeparamref name="T" /> to be converted to a Redis-compatible format.</param>
         /// <returns>A <see cref="RedisValue" /> representation of the given value.</returns>
-        public abstract RedisValue ToRedisValue(T value);
+        public abstract RedisValue GetBytes(T value);
 
         /// <summary>
         ///     Converts a given <see cref="RedisValue" /> to its corresponding value of type <typeparamref name="T" />.
         /// </summary>
         /// <param name="value">The <see cref="RedisValue" /> to be converted to a value of type <typeparamref name="T" />.</param>
         /// <returns>The converted value of type <typeparamref name="T" />.</returns>
-        public abstract T FromRedisValue(RedisValue value);
+        public abstract T Parse(RedisValue value);
     }
 }

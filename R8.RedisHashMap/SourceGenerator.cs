@@ -112,28 +112,30 @@ namespace {typeOptions.Namespace}
 
             return @$"private static readonly ArrayPool<HashEntry> arrayPool = ArrayPool<HashEntry>.Create({typeOptions.Properties.Count}, 1_000);
         private static readonly HashEntry[] emptyArray = Array.Empty<HashEntry>();
-
         {string.Join(@"
         ", converters.Select(c => $"private static readonly {c.ConverterType} converter_{c.ConverterName} = new {c.ConverterType}();"))}
+        {string.Join(@"
+        ", typeOptions.Properties.Where(x => x.HasJsonTypeInfo).Select(p => $"private static JsonTypeInfo<{p.Type}>? _jsonType_{p.Symbol!.Name};"))}
 
-        [ThreadStatic] private static ArrayBufferWriter<byte>? _arrayBufferWriter;
-        [ThreadStatic] private static Utf8JsonWriter? _utf8JsonWriter;
-        private static readonly ConcurrentDictionary<Type, JsonTypeInfo> _jsonTypeInfoCache = new ConcurrentDictionary<Type, JsonTypeInfo>();
+        {(typeOptions.Properties.Any(c => c.HasArrayBufferWriter) ? @"
+        [ThreadStatic] private static ArrayBufferWriter<byte>? _arrayBufferWriter;" : "")}{(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @"
+        [ThreadStatic] private static Utf8JsonWriter? _utf8JsonWriter;" : "")}
 
         {(isDeserialization ? GetDeserialization(typeOptions, readContentsWithSerializerOptions, readContentsWithSerializerContext) : "")}{(isSerialization ? GetSerialization(typeOptions, writeContentsWithSerializerOptions, writeContentsWithSerializerContext) : "")}
+{(typeOptions.Properties.Any(c=>c.HasArrayBufferWriter) ? @"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ArrayBufferWriter<byte> GetArrayBufferWriter()
-        {{
+        {
             var writer = _arrayBufferWriter;
             if (writer == null)
-            {{
+            {
                 writer = new ArrayBufferWriter<byte>();
                 _arrayBufferWriter = writer;
-            }}
+            }
 
             return writer;
-        }}
-
+        }" : "")}
+{(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? $@"
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static Utf8JsonWriter GetUtf8JsonWriter(ArrayBufferWriter<byte> bufferWriter)
         {{
@@ -149,21 +151,7 @@ namespace {typeOptions.Namespace}
             }}
 
             return jsonWriter;
-        }}
-
-        private static JsonTypeInfo<TValue> GetJsonTypeInfo<TValue>(JsonSerializerContext serializerContext)
-        {{
-            var type = typeof(TValue);
-            if (_jsonTypeInfoCache.TryGetValue(type, out var jsonTypeInfo))
-                return (JsonTypeInfo<TValue>)jsonTypeInfo;
-
-            jsonTypeInfo = serializerContext.GetTypeInfo(type) as JsonTypeInfo<TValue>;
-            if (jsonTypeInfo == null)
-                throw new InvalidOperationException($""JsonTypeInfo for type '{{type.FullName}}' not found in the provided serializer context."");
-
-            _jsonTypeInfoCache[type] = jsonTypeInfo;
-            return (JsonTypeInfo<TValue>)jsonTypeInfo;
-        }}";
+        }}" : "")}";
         }
 
         private static string GetSerialization(TypeSymbolOptions typeOptions, string writeContentsWithSerializerOptions, string writeContentsWithSerializerContext)
@@ -179,8 +167,8 @@ namespace {typeOptions.Namespace}
             Span<HashEntry> entriesSpan = entries.AsSpan();
             int index = -1;
 
-            ArrayBufferWriter<byte> bufferWriter = GetArrayBufferWriter();
-            Utf8JsonWriter? jsonWriter = null;
+            {(typeOptions.Properties.Any(c => c.HasArrayBufferWriter) ? "ArrayBufferWriter<byte>? bufferWriter = null;" : "")}
+            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? "Utf8JsonWriter? jsonWriter = null;" : "")}
 
             try
             {{
@@ -190,16 +178,13 @@ namespace {typeOptions.Namespace}
 
                 int finalCount = index + 1;
                 HashEntry[] resultArray = new HashEntry[finalCount];
-                if (finalCount > 0)
-                {{
-                    Array.Copy(entries, 0, resultArray, 0, finalCount);
-                }}
+                Array.Copy(entries, 0, resultArray, 0, finalCount);
 
                 return resultArray;
             }}
             finally
             {{
-                bufferWriter.Clear();
+                {(typeOptions.Properties.Any(c => c.HasArrayBufferWriter) ? "bufferWriter.Clear();" : "")}
                 arrayPool.Return(entries);
             }}
         }}
@@ -215,8 +200,8 @@ namespace {typeOptions.Namespace}
             Span<HashEntry> entriesSpan = entries.AsSpan();
             int index = -1;
 
-            ArrayBufferWriter<byte> bufferWriter = GetArrayBufferWriter();
-            Utf8JsonWriter? jsonWriter = null;
+            {(typeOptions.Properties.Any(c => c.HasArrayBufferWriter) ? "ArrayBufferWriter<byte>? bufferWriter = null;" : "")}
+            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? "Utf8JsonWriter? jsonWriter = null;" : "")}
 
             try
             {{
@@ -226,16 +211,13 @@ namespace {typeOptions.Namespace}
 
                 int finalCount = index + 1;
                 HashEntry[] resultArray = new HashEntry[finalCount];
-                if (finalCount > 0)
-                {{
-                    Array.Copy(entries, 0, resultArray, 0, finalCount);
-                }}
+                Array.Copy(entries, 0, resultArray, 0, finalCount);
 
                 return resultArray;
             }}
             finally
             {{
-                bufferWriter.Clear();
+                {(typeOptions.Properties.Any(c => c.HasArrayBufferWriter) ? "bufferWriter.Clear();" : "")}
                 arrayPool.Return(entries);
             }}
         }}
