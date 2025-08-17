@@ -12,6 +12,12 @@ using StackExchange.Redis;
 
 namespace R8.RedisHashMap.Test;
 
+[CacheContext]
+[CacheObject(typeof(Class1.Person))]
+public partial class MapperContext
+{
+}
+
 public class Class1
 {
     public class Person
@@ -19,8 +25,6 @@ public class Class1
         public string Name { get; set; }
         public int Age { get; set; }
     }
-
-    private static readonly ConcurrentDictionary<Type, SerializerContext> _serializerContexts = new();
 
     public static void Main(string[] args)
     {
@@ -31,14 +35,17 @@ public class Class1
         // var db = redis.GetDatabase();
         //
         // var person = new Person { Name = "Alice", Age = 30 };
-        // var hashEntries = person.GetHashEntries();
+        // var hashEntries = MapperContext.Default.Person.GetHashEntries(person);
         //
-        // // // Set the object in Redis
-        // db.HashSet("person:1", hashEntries);
-
-        // Get the object back from Redis
-        // var retrievedPerson = await hashMap.GetAsync();
-        // Console.WriteLine($"Name: {retrievedPerson.Name}, Age: {retrievedPerson.Age}");
+        // // Set the object in Redis
+        // var redisKey = new RedisKey("person:1");
+        // db.HashSet(redisKey, hashEntries);
+        //
+        // // Get the object back from Redis
+        // var retrievedHashEntries = db.HashGetAll(redisKey);
+        // var retrievedPerson = MapperContext.Default.Person.FromHashEntries(retrievedHashEntries);
+        //
+        // // Console.WriteLine($"Name: {retrievedPerson.Name}, Age: {retrievedPerson.Age}");
     }
 }
 

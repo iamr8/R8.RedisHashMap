@@ -21,5 +21,23 @@ namespace R8.RedisHashMap
             category: "SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor TopLevelClass = new DiagnosticDescriptor(
+            id: "RH1003",
+            title: "Context class must be top-level",
+            messageFormat: "{0} class cannot be nested inside another class",
+            description: "The context class cannot be nested inside another class. It must be a top-level class.",
+            category: "SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Warning,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor SetterMethodRequired = new DiagnosticDescriptor(
+            id: "RH1004",
+            title: "Setter method required",
+            messageFormat: "{0} property must be { get; set; } instead of { get; init; }",
+            description: "The property must have a setter method to be used in the source generator.",
+            category: "SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Error,
+            isEnabledByDefault: true);
     }
 }

@@ -51,10 +51,10 @@ namespace {contextOptions.Namespace}
         public static readonly {contextOptions.ObjectTypeSymbol} Default = new {contextOptions.ObjectTypeSymbol}();
 
         {string.Join(@"
-        ", contextOptions.Types.Select(typeOptions => $"private readonly Lazy<{typeOptions.ObjectTypeSymbol}RedisHelper> _{typeOptions.DisplayName.ToCamelCase()} = new Lazy<{typeOptions.ObjectTypeSymbol}RedisHelper>(() => new {typeOptions.ObjectTypeSymbol}RedisHelper());"))}
+        ", contextOptions.Types.Select(typeOptions => $"private readonly Lazy<{typeOptions.HelperTypeName}> _{typeOptions.DisplayName.ToCamelCase()} = new Lazy<{typeOptions.HelperTypeName}>(() => new {typeOptions.HelperTypeName}());"))}
 
         {string.Join(@"
-        ", contextOptions.Types.Select(typeOptions => $"{typeOptions.AccessibilityModifier} {typeOptions.ObjectTypeSymbol}RedisHelper {typeOptions.DisplayName} => _{typeOptions.DisplayName.ToCamelCase()}.Value;"))}
+        ", contextOptions.Types.Select(typeOptions => $"{typeOptions.AccessibilityModifier} {typeOptions.HelperTypeName} {typeOptions.DisplayName} => _{typeOptions.DisplayName.ToCamelCase()}.Value;"))}
     }}
 }}", Encoding.UTF8);
 
@@ -116,9 +116,9 @@ using System.Runtime.CompilerServices;
 
 using StackExchange.Redis;
 
-namespace {typeOptions.Namespace}
+namespace {contextOptions.Namespace}
 {{
-    {typeOptions.AccessibilityModifier} partial class {typeOptions.DisplayName}RedisHelper
+    {typeOptions.AccessibilityModifier} partial class {typeOptions.HelperName}
     {{
         {WriteMethods(contextOptions, typeOptions)}
     }}
@@ -139,9 +139,9 @@ namespace {typeOptions.Namespace}
 
 using StackExchange.Redis;
 
-namespace {typeOptions.Namespace}
+namespace {contextOptions.Namespace}
 {{
-    {typeOptions.AccessibilityModifier} partial class {typeOptions.DisplayName}RedisHelper
+    {typeOptions.AccessibilityModifier} partial class {typeOptions.HelperName}
     {{
         {GetFields(contextOptions, typeOptions)}
     }}
@@ -168,7 +168,8 @@ namespace {typeOptions.Namespace}
         [ThreadStatic] private static ArrayBufferWriter<byte>? _arrayBufferWriter;
         [ThreadStatic] private static Utf8JsonWriter? _utf8JsonWriter;" : "")}
 
-        {(isDeserialization ? GetDeserialization(typeOptions, readContentsWithSerializerOptions, readContentsWithSerializerContext) : "")}{(isSerialization ? GetSerialization(typeOptions, writeContentsWithSerializerOptions, writeContentsWithSerializerContext) : "")}
+        {(isDeserialization ? GetDeserialization(typeOptions, readContentsWithSerializerOptions, readContentsWithSerializerContext) : "")}
+        {(isSerialization ? GetSerialization(typeOptions, writeContentsWithSerializerOptions, writeContentsWithSerializerContext) : "")}
 {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @$"        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         private static ArrayBufferWriter<byte> GetArrayBufferWriter()
         {{
@@ -220,7 +221,8 @@ namespace {typeOptions.Namespace}
 
         private static string GetSerialization(ObjectOptions typeOptions, string writeContentsWithSerializerOptions, string writeContentsWithSerializerContext)
         {
-            return $@"/// <summary>
+            return $@"
+        /// <summary>
         /// Generates an array of <see cref=""HashEntry""/> from the current object's properties using the specified <see cref=""JsonSerializerContext""/>.
         /// </summary>
         /// <param name=""obj"">The {typeOptions.ObjectTypeSymbol} instance to serialize.</param>
@@ -231,7 +233,7 @@ namespace {typeOptions.Namespace}
             HashEntry[] entries = arrayPool.Rent({typeOptions.Properties.Count});
             Span<HashEntry> entriesSpan = entries.AsSpan();
             int index = -1;
-            {(typeOptions.Properties.Any(c=>c.HasUtf8JsonWriter) ? @"
+            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @"
             ArrayBufferWriter<byte>? arrayBufferWriter = null;
             Utf8JsonWriter? utf8JsonWriter = null;" : "")}
 
@@ -265,7 +267,7 @@ namespace {typeOptions.Namespace}
             HashEntry[] entries = arrayPool.Rent({typeOptions.Properties.Count});
             Span<HashEntry> entriesSpan = entries.AsSpan();
             int index = -1;
-            {(typeOptions.Properties.Any(c=>c.HasUtf8JsonWriter) ? @"
+            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @"
             ArrayBufferWriter<byte>? arrayBufferWriter = null;
             Utf8JsonWriter? utf8JsonWriter = null;" : "")}
 
@@ -494,9 +496,6 @@ namespace {typeOptions.Namespace}
             {
                 syntax = classDeclaration;
             }
-            //
-            // if (!syntax.Modifiers.Any(SyntaxKind.PublicKeyword) && !syntax.Modifiers.Any(SyntaxKind.InternalKeyword))
-            //     return false;
 
             if (syntax.AttributeLists.Count == 0)
                 return false;
@@ -554,8 +553,6 @@ namespace {typeOptions.Namespace}
                     {
                         if (objectTypeOptions != null)
                             throw new InvalidOperationException("Only one type can be specified for the CacheObject attribute.");
-                        if (!(typeOfExpressionSyntax.Type is IdentifierNameSyntax identifierNameSyntax))
-                            continue;
 
                         if (!(semanticModel.GetTypeInfo(typeOfExpressionSyntax.Type, cancellationToken).Type is INamedTypeSymbol typeSymbol))
                             continue;
@@ -638,6 +635,18 @@ namespace {typeOptions.Namespace}
                     continue;
 
                 var (contextTypeSymbol, syntax, cacheContextAttrSyntax, cacheObjectAttrSyntaxList) = syntaxTuple.Value;
+                if (contextTypeSymbol.IsAbstract)
+                {
+                    ctx.ReportDiagnostic(Diagnostic.Create(SourceGeneratorDiagnostics.AbstractContext, syntax.GetLocation(), contextTypeSymbol.Name));
+                    continue;
+                }
+
+                if (contextTypeSymbol.ContainingType != null)
+                {
+                    ctx.ReportDiagnostic(Diagnostic.Create(SourceGeneratorDiagnostics.TopLevelClass, syntax.GetLocation(), contextTypeSymbol.Name));
+                    continue;
+                }
+
                 var semanticModel = tuple.Left.GetSemanticModel(syntax.SyntaxTree);
                 var contextOptions = GetContextOptions(ctx, contextTypeSymbol, syntax, cacheContextAttrSyntax, semanticModel, cacheObjectAttrSyntaxList);
                 if (contextOptions.Types.Count == 0)
@@ -660,12 +669,6 @@ namespace {typeOptions.Namespace}
 
         private static ContextOptions GetContextOptions(SourceProductionContext ctx, INamedTypeSymbol contextTypeSymbol, TypeDeclarationSyntax syntax, AttributeSyntax cacheContextAttrSyntax, SemanticModel semanticModel, List<AttributeSyntax> cacheObjectAttrSyntaxList)
         {
-            // if context is `abstract` 
-            if (contextTypeSymbol.IsAbstract)
-            {
-                ctx.ReportDiagnostic(Diagnostic.Create(SourceGeneratorDiagnostics.AbstractContext, syntax.GetLocation(), contextTypeSymbol.Name));
-            }
-
             var objectTypeSymbol = TypeSymbol.Create(ctx, contextTypeSymbol);
             var contextOptions = new ContextOptions
             {
@@ -684,6 +687,13 @@ namespace {typeOptions.Namespace}
             };
             ConfigureByCacheContext(cacheContextAttrSyntax, contextOptions);
             ConfigureByCacheObjects(ctx, semanticModel, cacheObjectAttrSyntaxList, contextOptions, ctx.CancellationToken);
+
+            foreach (var typeOptions in contextOptions.Types)
+            {
+                typeOptions.HelperName = $"{contextOptions.DisplayName}_{typeOptions.DisplayName}RedisHelper";
+                typeOptions.HelperTypeName = $"{contextOptions.Namespace}.{typeOptions.HelperName}";
+            }
+
             return contextOptions;
         }
 
@@ -726,7 +736,11 @@ namespace {typeOptions.Namespace}
                         continue; // No getter method && no setter method
 
                     if (propertySymbol.SetMethod!.IsInitOnly)
-                        continue; // init;
+                    {
+                        // init;
+                        ctx.ReportDiagnostic(Diagnostic.Create(SourceGeneratorDiagnostics.SetterMethodRequired, propertySymbol.Locations.First(), propertySymbol.Name));
+                        continue;
+                    }
 
                     if (propertySymbol.IsIndexer)
                         continue; // this[]

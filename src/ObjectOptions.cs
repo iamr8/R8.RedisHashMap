@@ -16,6 +16,8 @@ namespace R8.RedisHashMap
         public string Namespace { get; set; }
         public string DisplayName { get; set; }
         public string AccessibilityModifier { get; set; }
+        public string HelperName { get; set; }
+        public string HelperTypeName { get; set; }
     }
 
     [DebuggerDisplay("{ObjectTypeSymbol}")]

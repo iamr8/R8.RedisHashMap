@@ -64,7 +64,7 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     /// </summary>
     public bool IsEmpty => _dictionary.Count == 0 || _dictionary.All(x => string.IsNullOrWhiteSpace(x.Value));
 
-    public string CustomText { get; init; }
+    public string CustomText { get; set; }
 
     public string CustomText2 { get; set; }
 
