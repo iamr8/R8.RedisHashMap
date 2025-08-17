@@ -1,8 +1,8 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "R8.RedisHashMap", "R8.RedisHashMap\R8.RedisHashMap.csproj", "{6E0E155C-E347-4219-88C6-3B9F27783FC4}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "R8.RedisHashMap", "src\R8.RedisHashMap.csproj", "{6E0E155C-E347-4219-88C6-3B9F27783FC4}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "R8.RedisHashMap.Test", "R8.RedisHashMap.Test\R8.RedisHashMap.Test.csproj", "{AB1D85E1-D1EE-440D-B504-C462FB954456}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "R8.RedisHashMap.Test", "sample\R8.RedisHashMap.Test.csproj", "{AB1D85E1-D1EE-440D-B504-C462FB954456}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
