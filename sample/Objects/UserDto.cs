@@ -15,7 +15,7 @@ public class UserDto
 
     public string? Mobile { get; set; }
 
-    public int Age { get; set; }
+    public int Age { get; init; }
 
     public UserRoleType[] Roles { get; set; }
     public string[] Tags { get; set; }

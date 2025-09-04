@@ -386,7 +386,7 @@ namespace R8.RedisHashMap
 
         internal string? GetGetterContentWithSerializerOptions(ContextOptions contextOptions, ISymbol propertySymbol)
         {
-            var setter = $"obj.{propertySymbol.Name} = ";
+            var setter = $"value_{propertySymbol.Name} = ";
             var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
 
             if (_hasConverter) return $@"{setter}{contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.Parse)}(entry.Value);";
@@ -416,7 +416,7 @@ namespace R8.RedisHashMap
 
         internal string? GetGetterContentWithSerializerContext(ContextOptions contextOptions, ISymbol propertySymbol)
         {
-            var setter = $"obj.{propertySymbol.Name} = ";
+            var setter = $"value_{propertySymbol.Name} = ";
             var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
 
             if (_hasConverter) return $@"{setter}{contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.Parse)}(entry.Value);";
