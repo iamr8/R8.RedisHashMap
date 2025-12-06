@@ -113,7 +113,7 @@ namespace {contextOptions.Namespace}
 {{
     {typeOptions.AccessibilityModifier} partial class {typeOptions.HelperName}
     {{
-        private static readonly ArrayPool<HashEntry> arrayPool = ArrayPool<HashEntry>.Create({typeOptions.Properties.Count}, 1_000);
+        private static readonly ArrayPool<HashEntry> arrayPool = ArrayPool<HashEntry>.Shared;
 
         {(isDeserialization ? BuildFromHashEntries(contextOptions, typeOptions) : "")}
         {(isSerialization ? BuildGetHashEntries(contextOptions, typeOptions) : "")}
@@ -150,24 +150,6 @@ namespace {contextOptions.Namespace}
             }}
 
             return jsonWriter;
-        }}
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ReadOnlyMemory<byte> GetBytes<T>(ArrayBufferWriter<byte> arrayBufferWriter, Utf8JsonWriter utf8JsonWriter, T value, JsonSerializerOptions? serializerOptions = null)
-        {{
-            arrayBufferWriter.Clear();
-            utf8JsonWriter.Reset(arrayBufferWriter);
-            return {nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}<T>(utf8JsonWriter!, arrayBufferWriter!, value, serializerOptions);
-        }}
-
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static ReadOnlyMemory<byte> GetBytes<T>(ArrayBufferWriter<byte>? arrayBufferWriter, Utf8JsonWriter? utf8JsonWriter, T value, JsonSerializerContext serializerContext)
-        {{
-            arrayBufferWriter.Clear();
-            utf8JsonWriter.Reset(arrayBufferWriter);
-            return serializerContext.GetTypeInfo(typeof(T)) is JsonTypeInfo<T> jsonType
-                ? {nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}<T>(utf8JsonWriter!, arrayBufferWriter!, value, jsonType)
-                : {nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}<T>(utf8JsonWriter!, arrayBufferWriter!, value, serializerContext.Options);
         }}" : "")}
     }}
 }}", Encoding.UTF8);

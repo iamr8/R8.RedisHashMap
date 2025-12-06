@@ -22,7 +22,26 @@ namespace R8.RedisHashMap
             SkipValidation = false
         };
 
-        public static ReadOnlyMemory<byte> GetBytes<TValue>(Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> bufferWriter, TValue value, JsonSerializerOptions? serializerOptions)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ReadOnlyMemory<byte> GetBytes<T>(ArrayBufferWriter<byte> arrayBufferWriter, Utf8JsonWriter utf8JsonWriter, T value, JsonSerializerOptions? serializerOptions = null)
+        {
+            arrayBufferWriter.Clear();
+            utf8JsonWriter.Reset(arrayBufferWriter);
+            return GetBytes<T>(utf8JsonWriter, arrayBufferWriter, value, serializerOptions);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static ReadOnlyMemory<byte> GetBytes<T>(ArrayBufferWriter<byte> arrayBufferWriter, Utf8JsonWriter utf8JsonWriter, T value, JsonSerializerContext serializerContext)
+        {
+            arrayBufferWriter.Clear();
+            utf8JsonWriter.Reset(arrayBufferWriter);
+            return serializerContext.GetTypeInfo(typeof(T)) is JsonTypeInfo<T> jsonType
+                ? GetBytes<T>(utf8JsonWriter, arrayBufferWriter, value, jsonType)
+                : GetBytes<T>(utf8JsonWriter, arrayBufferWriter, value, serializerContext.Options);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static ReadOnlyMemory<byte> GetBytes<TValue>(Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> bufferWriter, TValue value, JsonSerializerOptions? serializerOptions)
         {
             if (value is JsonElement element)
             {
@@ -34,14 +53,19 @@ namespace R8.RedisHashMap
             }
 
             jsonWriter.Flush();
-            return bufferWriter.WrittenMemory;
+            Memory<byte> finalMemory = new byte[bufferWriter.WrittenCount];
+            bufferWriter.WrittenMemory.CopyTo(finalMemory);
+            return finalMemory;
         }
 
-        public static ReadOnlyMemory<byte> GetBytes<TValue>(Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> bufferWriter, TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static ReadOnlyMemory<byte> GetBytes<TValue>(Utf8JsonWriter jsonWriter, ArrayBufferWriter<byte> bufferWriter, TValue value, JsonTypeInfo<TValue> jsonTypeInfo)
         {
             JsonSerializer.Serialize(jsonWriter, value, jsonTypeInfo);
             jsonWriter.Flush();
-            return bufferWriter.WrittenMemory;
+            Memory<byte> finalMemory = new byte[bufferWriter.WrittenCount];
+            bufferWriter.WrittenMemory.CopyTo(finalMemory);
+            return finalMemory;
         }
 
         /// <summary>
@@ -51,6 +75,7 @@ namespace R8.RedisHashMap
         /// <param name="value">The RedisValue containing the JSON data to be deserialized.</param>
         /// <param name="serializerOptions">The serialization options to customize deserialization behavior.</param>
         /// <returns>The deserialized object of type TValue.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TValue Parse<TValue>(this RedisValue value, JsonSerializerOptions? serializerOptions)
         {
             var bytes = ((ReadOnlyMemory<byte>)value).Span;
@@ -64,6 +89,7 @@ namespace R8.RedisHashMap
         /// <param name="value">The RedisValue containing the JSON-encoded data to be deserialized.</param>
         /// <param name="jsonTypeInfo">The JSON type information to guide the deserialization process.</param>
         /// <returns>The deserialized value of the specified type.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static TValue Parse<TValue>(this RedisValue value, JsonTypeInfo<TValue> jsonTypeInfo)
         {
             var bytes = ((ReadOnlyMemory<byte>)value).Span;
@@ -77,6 +103,7 @@ namespace R8.RedisHashMap
         /// <param name="value">The RedisValue containing the serialized data to parse.</param>
         /// <param name="serializerContext">A JsonSerializerContext providing type-specific serializer metadata for the deserialization process.</param>
         /// <returns>An instance of type T deserialized from the given RedisValue.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static T Parse<T>(this RedisValue value, JsonSerializerContext serializerContext)
         {
             return serializerContext.GetTypeInfo(typeof(T)) is JsonTypeInfo<T> jsonType
@@ -89,6 +116,7 @@ namespace R8.RedisHashMap
         /// </summary>
         /// <param name="value">The RedisValue containing JSON data to be deserialized.</param>
         /// <returns>A JsonElement representing the deserialized JSON structure.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static JsonElement GetJsonElement(this RedisValue value)
         {
             var bytes = ((ReadOnlyMemory<byte>)value).Span;
@@ -101,6 +129,7 @@ namespace R8.RedisHashMap
         /// </summary>
         /// <param name="value">The RedisValue containing the data to be deserialized.</param>
         /// <returns>A JsonDocument representing the deserialized data.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static JsonDocument GetJsonDocument(this RedisValue value)
         {
             var bytes = (ReadOnlyMemory<byte>)value;

@@ -16,58 +16,55 @@ namespace R8.RedisHashMap
     {
         private readonly ImmutableArray<TypeSymbol> _arguments;
         private readonly ITypeSymbol? _enumUnderlyingType;
-        private readonly bool _isArray;
-        private readonly bool _isBytesArray;
-        private readonly bool _isCollection;
-        private readonly bool _isDictionary;
-        private readonly bool _isEnum;
-        private readonly bool _isJsonDocument;
-        private readonly bool _isJsonElement;
-        private readonly bool _isList;
+        public readonly bool HasConverter;
 
-        private readonly bool _isPrimitiveType;
-        private readonly bool _isReadOnlyMemory;
-        private readonly bool _isReferenceType;
+        public readonly bool IsIEnumerable;
+        public readonly bool IsArray;
+        public readonly bool IsCollection;
+        public readonly bool IsDictionary;
+        public readonly bool IsList;
 
-        private readonly bool _isString;
-        private readonly bool _isValueType;
-        private readonly bool _hasConverter;
+        public readonly bool IsString;
+        public readonly bool IsReferenceType;
+        public readonly bool IsJsonDocument;
+
+        public readonly bool IsValueType;
+        public readonly bool IsEnum;
+        public readonly bool IsJsonElement;
+        public readonly bool IsReadOnlyMemoryOfBytes;
+
+        public readonly bool CastToRedisValue;
+        public readonly bool CastFromRedisValue;
+        public readonly bool IsRedisValue;
 
         private TypeSymbol(SourceProductionContext context, ITypeSymbol type, ISymbol? symbol, bool isNullable)
         {
             Type = type;
             Symbol = symbol;
 
-            _isValueType = type.IsValueType;
-            _isPrimitiveType = _isValueType && (type.SpecialType == SpecialType.System_Boolean ||
-                                                type.SpecialType == SpecialType.System_Char ||
-                                                type.SpecialType == SpecialType.System_SByte ||
-                                                type.SpecialType == SpecialType.System_Byte ||
-                                                type.SpecialType == SpecialType.System_Int16 ||
-                                                type.SpecialType == SpecialType.System_UInt16 ||
-                                                type.SpecialType == SpecialType.System_Int32 ||
-                                                type.SpecialType == SpecialType.System_UInt32 ||
-                                                type.SpecialType == SpecialType.System_Int64 ||
-                                                type.SpecialType == SpecialType.System_UInt64 ||
-                                                type.SpecialType == SpecialType.System_Decimal ||
-                                                type.SpecialType == SpecialType.System_Single ||
-                                                type.SpecialType == SpecialType.System_Double);
-            _isEnum = _isValueType && type.TypeKind == TypeKind.Enum;
-            _isReferenceType = type.IsReferenceType;
-            _isString = _isReferenceType && type.SpecialType == SpecialType.System_String;
+            IsValueType = type.IsValueType;
+            IsEnum = IsValueType && type.TypeKind == TypeKind.Enum;
+            IsReferenceType = type.IsReferenceType;
+            IsString = IsReferenceType && type.SpecialType == SpecialType.System_String;
             IsNullable = isNullable;
-            _isArray = type is IArrayTypeSymbol;
-            _isCollection = type.AllInterfaces.Any(x => x.Name.Equals(nameof(ICollection), StringComparison.Ordinal) ||
-                                                        x.SpecialType == SpecialType.System_Collections_Generic_ICollection_T);
-            _isList = type.AllInterfaces.Any(x => x.Name.Equals(nameof(IList), StringComparison.Ordinal) ||
-                                                  x.SpecialType == SpecialType.System_Collections_Generic_IList_T);
-            _isDictionary = type.AllInterfaces.Any(x => x.Name.Equals(nameof(IDictionary), StringComparison.Ordinal));
-            _isJsonDocument = _isReferenceType && type.Name.Equals(nameof(JsonDocument), StringComparison.Ordinal);
-            _isJsonElement = _isValueType && type.Name.Equals(nameof(JsonElement), StringComparison.Ordinal);
+            IsArray = type is IArrayTypeSymbol;
+            IsCollection = type.AllInterfaces.Any(x => x.Name.Equals(nameof(ICollection), StringComparison.Ordinal) ||
+                                                       x.SpecialType == SpecialType.System_Collections_Generic_ICollection_T);
+            IsList = type.AllInterfaces.Any(x => x.Name.Equals(nameof(IList), StringComparison.Ordinal) ||
+                                                 x.SpecialType == SpecialType.System_Collections_Generic_IList_T);
+            IsDictionary = type.AllInterfaces.Any(x => x.Name.Equals(nameof(IDictionary), StringComparison.Ordinal));
 
-            _enumUnderlyingType = _isEnum ? ((INamedTypeSymbol)Type).EnumUnderlyingType : null;
+            // When directly uses IEnumerable<>
+            IsIEnumerable = type.AllInterfaces.Any(x => x.Name.Equals(nameof(IEnumerable), StringComparison.Ordinal) ||
+                                                        x.SpecialType == SpecialType.System_Collections_Generic_IEnumerable_T) ||
+                            type.Name.Equals(nameof(IEnumerable), StringComparison.Ordinal) ||
+                            type.SpecialType == SpecialType.System_Collections_IEnumerable;
+            IsJsonDocument = IsReferenceType && type.Name.Equals(nameof(JsonDocument), StringComparison.Ordinal);
+            IsJsonElement = IsValueType && type.Name.Equals(nameof(JsonElement), StringComparison.Ordinal);
 
-            if (_isArray)
+            _enumUnderlyingType = IsEnum ? ((INamedTypeSymbol)Type).EnumUnderlyingType : null;
+
+            if (IsArray)
             {
                 var arrayType = (IArrayTypeSymbol)type;
                 _arguments = new[] { Create(context, arrayType.ElementType) }.ToImmutableArray();
@@ -81,10 +78,32 @@ namespace R8.RedisHashMap
                 _arguments = ImmutableArray<TypeSymbol>.Empty;
             }
 
-            _isReadOnlyMemory = type.Name.Equals("ReadOnlyMemory", StringComparison.Ordinal) && _arguments.Length > 0;
-            _isBytesArray = _isArray && _arguments.Length == 1 && _arguments[0].Type.SpecialType == SpecialType.System_Byte;
+            IsReadOnlyMemoryOfBytes = type.Name.Equals(nameof(ReadOnlyMemory<byte>), StringComparison.Ordinal) && _arguments.Length == 1 && _arguments[0].Type.SpecialType == SpecialType.System_Byte;
+            IsRedisValue = type.Name.Equals(nameof(RedisValue), StringComparison.Ordinal);
             Converter = ConverterTypeSymbol.GetConverter(context, this);
-            _hasConverter = Converter != null;
+            HasConverter = Converter != null;
+
+            CastToRedisValue = type.SpecialType == SpecialType.System_Int32 ||
+                               type.SpecialType == SpecialType.System_UInt32 ||
+                               type.SpecialType == SpecialType.System_Int64 ||
+                               type.SpecialType == SpecialType.System_UInt64 ||
+                               type.SpecialType == SpecialType.System_Double ||
+                               (type.Name.Equals(nameof(Memory<byte>), StringComparison.Ordinal) && _arguments.Length == 1 && _arguments[0].Type.SpecialType == SpecialType.System_Byte) ||
+                               IsReadOnlyMemoryOfBytes ||
+                               type.SpecialType == SpecialType.System_String ||
+                               (IsArray && _arguments.Length == 1 && _arguments[0].Type.SpecialType == SpecialType.System_Byte) ||
+                               type.SpecialType == SpecialType.System_Boolean;
+            CastFromRedisValue = type.SpecialType == SpecialType.System_Boolean ||
+                                 type.SpecialType == SpecialType.System_Int32 ||
+                                 type.SpecialType == SpecialType.System_UInt32 ||
+                                 type.SpecialType == SpecialType.System_Int64 ||
+                                 type.SpecialType == SpecialType.System_UInt64 ||
+                                 type.SpecialType == SpecialType.System_Double ||
+                                 type.SpecialType == SpecialType.System_Decimal ||
+                                 type.SpecialType == SpecialType.System_Single ||
+                                 type.SpecialType == SpecialType.System_String ||
+                                 IsReadOnlyMemoryOfBytes ||
+                                 (IsArray && _arguments.Length == 1 && _arguments[0].Type.SpecialType == SpecialType.System_Byte);
         }
 
         public ISymbol? Symbol { get; }
@@ -94,6 +113,11 @@ namespace R8.RedisHashMap
 
         public bool HasJsonTypeInfo { get; private set; }
         public bool HasUtf8JsonWriter { get; private set; }
+
+        public bool IsBuiltinType =>
+            (CastFromRedisValue && CastToRedisValue) ||
+            IsRedisValue ||
+            IsEnum;
 
         internal ConverterTypeSymbol? Converter { get; }
 
@@ -158,7 +182,7 @@ namespace R8.RedisHashMap
                 foreach (var argument in _arguments)
                     sb.Append(argument.GetDisplayName());
 
-            if (_isArray) sb.Append("Array");
+            if (IsArray) sb.Append("Array");
 
             return sb.ToString();
         }
@@ -191,13 +215,13 @@ namespace R8.RedisHashMap
 
             var declareLocalVariable = $@"{typeIdentifier} {valueIdentifier} = {propertyIdentifier};
                 ";
-            if (_isReadOnlyMemory)
+            if (IsReadOnlyMemoryOfBytes)
                 return declareLocalVariable + $@"if ({valueIdentifier}.Length > 0)
                 {{
                     {content}
                 }}";
 
-            if (_isJsonElement)
+            if (IsJsonElement)
             {
                 if (IsNullable)
                     return declareLocalVariable + $@"if ({valueIdentifier}.HasValue && {valueIdentifier}.Value.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.Value.ValueKind != JsonValueKind.Null)
@@ -211,13 +235,13 @@ namespace R8.RedisHashMap
                 }}";
             }
 
-            if (_isJsonDocument)
+            if (IsJsonDocument)
                 return declareLocalVariable + @$"if ({valueIdentifier} != {(IsNullable ? "null" : "default")} && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Null)
                 {{
                     {content}
                 }}";
 
-            if (_isValueType)
+            if (IsValueType)
             {
                 if (IsNullable)
                     return declareLocalVariable + $@"if ({valueIdentifier}.HasValue)
@@ -230,14 +254,20 @@ namespace R8.RedisHashMap
                 }}";
             }
 
-            if (_isString || _isArray)
+            if (IsString || IsArray)
                 return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
                 {{
                     {content}
                 }}";
 
-            if (_isDictionary || _isCollection || _isList)
+            if (IsDictionary || IsCollection || IsList)
                 return declareLocalVariable + $@"if ({valueIdentifier} is {{ Count: > 0 }})
+                {{
+                    {content}
+                }}";
+
+            if (IsIEnumerable)
+                return declareLocalVariable + $@"if ({valueIdentifier}.Any())
                 {{
                     {content}
                 }}";
@@ -248,15 +278,15 @@ namespace R8.RedisHashMap
                 }}";
         }
 
-        internal string? GetSetterContentWithSerializerOptions(ContextOptions contextOptions, ISymbol propertySymbol)
+        internal string? GetSetterContent(ContextOptions contextOptions, ISymbol propertySymbol, string serializerParameterName)
         {
             var fieldIdentifier = $"field_{propertySymbol.Name}";
             var valueIdentifier = $"value_{propertySymbol.Name}";
-            const string setter = "entries[++index] = ";
+            const string setter = "pooledArray[++index] = ";
 
-            if (_hasConverter)
+            if (HasConverter)
             {
-                var hasDotValue = IsNullable && _isValueType;
+                var hasDotValue = IsNullable && IsValueType;
                 return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = {contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.GetBytes)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
                     if (!redis_{propertySymbol.Name}.{nameof(RedisValue.IsNullOrEmpty)})
                     {{
@@ -264,188 +294,81 @@ namespace R8.RedisHashMap
                     }}";
             }
 
-            if (_isPrimitiveType)
+            if (CastFromRedisValue && CastToRedisValue)
+            {
+                if (IsValueType)
+                    return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
+
+                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
+            }
+
+            if (IsRedisValue)
                 return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
 
-            if (_isEnum)
+            if (IsEnum)
                 return $"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)})({_enumUnderlyingType}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
 
-            if (_isReadOnlyMemory)
-                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
-
-            if (_isJsonElement)
+            if (IsJsonElement)
             {
                 HasUtf8JsonWriter = true;
                 return $@"arrayBufferWriter ??= GetArrayBufferWriter();
                     utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
             }
 
-            if (_isJsonDocument)
+            if (IsJsonDocument)
             {
                 HasUtf8JsonWriter = true;
                 return @$"arrayBufferWriter ??= GetArrayBufferWriter();
                     utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}.RootElement);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}.RootElement);
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
             }
 
-            if (_isValueType) // User-defined struct
+            if (IsValueType) // User-defined struct
             {
                 HasUtf8JsonWriter = true;
                 return $@"arrayBufferWriter ??= GetArrayBufferWriter();
                     utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, serializerOptions);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, {serializerParameterName});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
             }
 
-            if (_isString || _isBytesArray)
-                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
-
-            if (_isReferenceType) // User-defined class
+            if (IsReferenceType) // User-defined class
             {
+                HasJsonTypeInfo = true;
                 HasUtf8JsonWriter = true;
                 return $@"arrayBufferWriter ??= GetArrayBufferWriter();
                     utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}, serializerOptions);
+                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}, {serializerParameterName});
                     {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
             }
 
             return null;
         }
 
-        internal string? GetSetterContentWithSerializerContext(ContextOptions contextOptions, ISymbol propertySymbol)
-        {
-            var fieldIdentifier = $"field_{propertySymbol.Name}";
-            var valueIdentifier = $"value_{propertySymbol.Name}";
-            const string setter = "entries[++index] = ";
-
-            if (_hasConverter)
-            {
-                var hasDotValue = IsNullable && _isValueType;
-                return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = {contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.GetBytes)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
-                    if (!redis_{propertySymbol.Name}.{nameof(RedisValue.IsNullOrEmpty)})
-                    {{
-                        {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});
-                    }}";
-            }
-
-            if (_isPrimitiveType)
-                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
-
-            if (_isEnum)
-                return $"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)})({_enumUnderlyingType}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
-
-            if (_isReadOnlyMemory)
-                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
-
-            if (_isJsonElement)
-            {
-                HasUtf8JsonWriter = true;
-                return $@"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            if (_isJsonDocument)
-            {
-                HasUtf8JsonWriter = true;
-                return @$"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}.RootElement);
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            if (_isValueType) // User-defined struct
-            {
-                HasJsonTypeInfo = true;
-                HasUtf8JsonWriter = true;
-                return $@"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, serializerContext);
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            if (_isString || _isBytesArray)
-                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
-
-            if (_isReferenceType) // User-defined class
-            {
-                HasJsonTypeInfo = true;
-                HasUtf8JsonWriter = true;
-                return $@"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)})GetBytes(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}, serializerContext);
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            return null;
-        }
-
-        internal string? GetGetterContentWithSerializerOptions(ContextOptions contextOptions, ISymbol propertySymbol)
+        internal string? GetGetterContent(ContextOptions contextOptions, ISymbol propertySymbol, string serializerParameterName)
         {
             var setter = $"value_{propertySymbol.Name} = ";
             var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
 
-            if (_hasConverter) return $@"{setter}{contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.Parse)}(entry.Value);";
+            if (HasConverter) return $@"{setter}{contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.Parse)}(entry.Value);";
 
-            if (_isPrimitiveType) return $@"{setter}({typeIdentifier})entry.Value;";
+            if (CastFromRedisValue && CastToRedisValue)
+                return IsValueType ? $"{setter}({typeIdentifier})entry.Value;" : $@"{setter}({Type})entry.Value;";
 
-            if (_isEnum) return $"{setter}({Type})({_enumUnderlyingType})entry.Value;";
+            if (IsEnum) return $"{setter}({Type})({_enumUnderlyingType})entry.Value;";
 
-            if (_isReadOnlyMemory) return $@"{setter}({nameof(ReadOnlyMemory<byte>)}<byte>)entry.Value;";
+            if (IsJsonElement) return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.GetJsonElement)}();";
 
-            if (_isJsonElement) return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.GetJsonElement)}();";
+            if (IsJsonDocument) return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.GetJsonDocument)}();";
 
-            if (_isJsonDocument) return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.GetJsonDocument)}();";
+            if (IsValueType) // User-defined struct
+                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>({serializerParameterName});";
 
-            if (_isValueType) // User-defined struct
-                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>(serializerOptions);";
-
-            if (_isString) return $@"{setter}(string{(IsNullable ? "?" : "")})entry.Value;";
-
-            if (_isBytesArray) return $@"{setter}(byte[])entry.Value;";
-
-            if (_isReferenceType) // User-defined class
-                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>(serializerOptions);";
-
-            return null;
-        }
-
-        internal string? GetGetterContentWithSerializerContext(ContextOptions contextOptions, ISymbol propertySymbol)
-        {
-            var setter = $"value_{propertySymbol.Name} = ";
-            var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
-
-            if (_hasConverter) return $@"{setter}{contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.Parse)}(entry.Value);";
-
-            if (_isPrimitiveType) return $@"{setter}({typeIdentifier})entry.Value;";
-
-            if (_isEnum) return $"{setter}({Type})({_enumUnderlyingType})entry.Value;";
-
-            if (_isReadOnlyMemory) return $@"{setter}({nameof(ReadOnlyMemory<byte>)}<byte>)entry.Value;";
-
-            if (_isJsonElement) return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.GetJsonElement)}();";
-
-            if (_isJsonDocument) return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.GetJsonDocument)}();";
-
-            if (_isValueType) // User-defined struct
-            {
-                HasJsonTypeInfo = true;
-                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>(serializerContext);";
-            }
-
-            if (_isString) return $@"{setter}(string{(IsNullable ? "?" : "")})entry.Value;";
-
-            if (_isBytesArray) return $@"{setter}(byte[])entry.Value;";
-
-            if (_isReferenceType) // User-defined class
-            {
-                HasJsonTypeInfo = true;
-                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>(serializerContext);";
-            }
+            if (IsReferenceType) // User-defined class
+                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>({serializerParameterName});";
 
             return null;
         }
@@ -485,6 +408,26 @@ namespace R8.RedisHashMap
         public static bool operator !=(TypeSymbol left, TypeSymbol right)
         {
             return !left.Equals(right);
+        }
+
+        public string GetSerializerContextTypeName()
+        {
+            if (IsArray)
+            {
+                return $"{_arguments[0].Type.Name}Array";
+            }
+
+            if (IsList)
+            {
+                return $"List{_arguments[0].Type.Name}";
+            }
+
+            if (IsDictionary)
+            {
+                return $"Dictionary{_arguments[0].Type}{_arguments[1].Type.Name}";
+            }
+
+            return Type.Name;
         }
     }
 }

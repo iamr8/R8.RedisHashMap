@@ -273,8 +273,28 @@ namespace R8.RedisHashMap
                 var item = TypeSymbol.Create(ctx, symbol);
                 options.Properties.Add(item);
 
-                if (item.Converter != null && !options.Converters.Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, item.Converter!.ConverterType)))
-                    options.Converters.Add(item.Converter);
+                var hasValidConverter = item.Converter != null && !options.Converters.Any(c => SymbolEqualityComparer.Default.Equals(c.ConverterType, item.Converter!.ConverterType));
+                if (hasValidConverter)
+                    options.Converters.Add(item.Converter!);
+
+                // Report warning if property requires JSON serialization without explicit converter
+                if (!item.IsBuiltinType && !hasValidConverter)
+                {
+                    ctx.ReportDiagnostic(Diagnostic.Create(
+                        SourceGeneratorDiagnostics.PropertyRequiresJsonSerialization,
+                        symbol.Locations.FirstOrDefault(),
+                        symbol.Name,
+                        item.Type.ToDisplayString()));
+                }
+
+                if (item is { IsIEnumerable: true, IsArray: false, IsList: false, IsCollection: false, IsDictionary: false, IsString: false })
+                {
+                    ctx.ReportDiagnostic(Diagnostic.Create(
+                        SourceGeneratorDiagnostics.PropertyIEnumerableDegradesPerformance,
+                        symbol.Locations.FirstOrDefault(),
+                        symbol.Name,
+                        item.Type.ToDisplayString()));
+                }
             }
 
             if (options.Properties.Count == 0)

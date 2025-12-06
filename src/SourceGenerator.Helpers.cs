@@ -23,29 +23,26 @@ namespace R8.RedisHashMap
         /// <returns>An array of <see cref=""HashEntry""/> containing serialized representations of the object's properties.</returns>
         public HashEntry[] GetHashEntries({typeOptions.ObjectTypeSymbol} obj, JsonSerializerContext serializerContext)
         {{
-            HashEntry[] entries = arrayPool.Rent({typeOptions.Properties.Count});
-            Span<HashEntry> entriesSpan = entries.AsSpan();
-            int index = -1;
-            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @"
-            ArrayBufferWriter<byte>? arrayBufferWriter = null;
-            Utf8JsonWriter? utf8JsonWriter = null;" : "")}
+            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @"ArrayBufferWriter<byte>? arrayBufferWriter = null;
+            Utf8JsonWriter? utf8JsonWriter = null;
+            " : "")}int index = -1;
+            HashEntry[] pooledArray = arrayPool.Rent({typeOptions.Properties.Count});
 
             try
             {{
                 {writeContentsWithSerializerContext}
+                
                 if (index == -1)
                     return Array.Empty<HashEntry>();
 
                 int finalCount = index + 1;
                 HashEntry[] resultArray = new HashEntry[finalCount];
-                Array.Copy(entries, 0, resultArray, 0, finalCount);
-
+                Array.Copy(pooledArray, 0, resultArray, 0, finalCount);
                 return resultArray;
             }}
             finally
             {{
-                {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? "arrayBufferWriter?.Clear();" : "")}
-                arrayPool.Return(entries);
+                arrayPool.Return(pooledArray, clearArray: false);
             }}
         }}
 
@@ -57,29 +54,26 @@ namespace R8.RedisHashMap
         /// <returns>An array of <see cref=""HashEntry""/> representing the fields and values of the {typeOptions.ObjectTypeSymbol} instance.</returns>
         public HashEntry[] GetHashEntries({typeOptions.ObjectTypeSymbol} obj, JsonSerializerOptions? serializerOptions = null)
         {{
-            HashEntry[] entries = arrayPool.Rent({typeOptions.Properties.Count});
-            Span<HashEntry> entriesSpan = entries.AsSpan();
-            int index = -1;
-            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @"
-            ArrayBufferWriter<byte>? arrayBufferWriter = null;
-            Utf8JsonWriter? utf8JsonWriter = null;" : "")}
+            {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? @"ArrayBufferWriter<byte>? arrayBufferWriter = null;
+            Utf8JsonWriter? utf8JsonWriter = null;
+            " : "")}int index = -1;
+            HashEntry[] pooledArray = arrayPool.Rent({typeOptions.Properties.Count});
 
             try
             {{
                 {writeContentsWithSerializerOptions}
+                
                 if (index == -1)
                     return Array.Empty<HashEntry>();
 
                 int finalCount = index + 1;
                 HashEntry[] resultArray = new HashEntry[finalCount];
-                Array.Copy(entries, 0, resultArray, 0, finalCount);
-
+                Array.Copy(pooledArray, 0, resultArray, 0, finalCount);
                 return resultArray;
             }}
             finally
             {{
-                {(typeOptions.Properties.Any(c => c.HasUtf8JsonWriter) ? "arrayBufferWriter?.Clear();" : "")}
-                arrayPool.Return(entries);
+                arrayPool.Return(pooledArray, clearArray: false);
             }}
         }}
 ";
@@ -118,7 +112,7 @@ namespace R8.RedisHashMap
                 {{
                     {string.Join(@"
                     ", typeOptions.Properties.Select(propertyType => {
-                        var wrapper = propertyType.GetGetterContentWithSerializerOptions(contextOptions, propertyType.Symbol!);
+                        var wrapper = propertyType.GetGetterContent(contextOptions, propertyType.Symbol!, "serializerOptions");
                         return $@"case prop_{propertyType.Symbol!.Name}: {{ {wrapper ?? $"throw new NotSupportedException($\"Cannot convert `{propertyType.Type}` to `RedisValue` for `{propertyType.Symbol}`.\");"} break; }}";
                     }))}
                 }}
@@ -162,7 +156,7 @@ namespace R8.RedisHashMap
                 {{
                     {string.Join(@"
                     ", typeOptions.Properties.Select(propertyType => {
-                        var wrapper = propertyType.GetGetterContentWithSerializerContext(contextOptions, propertyType.Symbol!);
+                        var wrapper = propertyType.GetGetterContent(contextOptions, propertyType.Symbol!, "serializerContext");
                         return $@"case prop_{propertyType.Symbol!.Name}: {{ {wrapper ?? $"throw new NotSupportedException($\"Cannot convert `{propertyType.Type}` to `RedisValue` for `{propertyType.Symbol}`.\");"} break; }}";
                     }))}
                 }}
@@ -190,7 +184,7 @@ namespace R8.RedisHashMap
                 var propertyType = propertyTypes[index];
                 // var parser = GetParser(objectTypeSymbol, property);
                 var propertySymbol = propertyType.Symbol;
-                var content = propertyType.GetSetterContentWithSerializerOptions(contextOptions, propertySymbol!);
+                var content = propertyType.GetSetterContent(contextOptions, propertySymbol!, "serializerOptions");
                 var wrapper = propertyType.GetSetterWrapper(propertySymbol!, content);
                 if (wrapper != null)
                 {
@@ -217,7 +211,8 @@ namespace R8.RedisHashMap
             {
                 var propertyType = propertyTypes[index];
                 var propertySymbol = propertyType.Symbol;
-                var content = propertyType.GetSetterContentWithSerializerContext(contextOptions, propertySymbol!);
+                // var serializerContextTypeName = propertyType.GetSerializerContextTypeName();
+                var content = propertyType.GetSetterContent(contextOptions, propertySymbol!, $"serializerContext");
                 var wrapper = propertyType.GetSetterWrapper(propertySymbol!, content);
 
                 if (wrapper != null)

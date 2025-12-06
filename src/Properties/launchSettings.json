@@ -3,7 +3,7 @@
   "profiles": {
     "Generators": {
       "commandName": "DebugRoslynComponent",
-      "targetProject": "../sample/R8.RedisHashMap.Test.csproj"
+      "targetProject": "../benchmark/R8.RedisHashMap.Benchmark.csproj"
     }
   }
 }

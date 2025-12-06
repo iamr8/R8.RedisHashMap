@@ -49,13 +49,9 @@ public class Class1
     }
 }
 
-internal class SerializerContext
-{
-}
-
 // [SimpleJob(RuntimeMoniker.Net60)]
 // [SimpleJob(RuntimeMoniker.Net80)]
-[SimpleJob(RuntimeMoniker.Net90)]
+[SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [ThreadingDiagnoser]
 [GcServer(true)]
@@ -85,7 +81,7 @@ public class WriteBenchmark
                     ["nationality"] = "Iranian",
                     ["countryOfResidence"] = "Turkey",
                     ["age"] = "34"
-                }
+                },
             }).ToArray();
     }
 

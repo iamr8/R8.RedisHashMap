@@ -39,5 +39,24 @@ namespace R8.RedisHashMap
             category: "SourceGenerator",
             defaultSeverity: DiagnosticSeverity.Error,
             isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor PropertyRequiresJsonSerialization = new DiagnosticDescriptor(
+            id: "RH1005",
+            title: "Property uses JSON serialization",
+            messageFormat: "Property '{0}' of type '{1}' will be serialized/deserialized using JSON. Consider using a custom converter with [CacheConverter] attribute for better performance and reliability, or ensure the type is JSON-serializable.",
+            description: "The property type is not natively supported by Redis and will be serialized/deserialized using JSON. This may cause issues if the type is not JSON-serializable or if you need custom serialization logic. Consider adding a [CacheConverter] attribute with a custom converter for better control.",
+            category: "SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Warning,
+            isEnabledByDefault: true);
+
+        public static readonly DiagnosticDescriptor PropertyIEnumerableDegradesPerformance = new DiagnosticDescriptor(
+            id: "RH1006",
+            title: "Property uses IEnumerable type",
+            messageFormat: "Property '{0}' of type '{1}' uses IEnumerable which may degrade performance. Consider using a more specific collection type like List<T> or Array for better performance.",
+            description: "Using IEnumerable types may lead to performance degradation due to deferred execution and multiple enumerations. Consider using more specific collection types such as List<T> or Array to improve performance when storing data in Redis.",
+            category: "SourceGenerator",
+            defaultSeverity: DiagnosticSeverity.Warning,
+            isEnabledByDefault: true
+        );
     }
 }
