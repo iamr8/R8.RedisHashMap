@@ -3,6 +3,8 @@
 R8.RedisHashMap is a high-performance Redis hash mapping library for .NET, designed to provide a simple and efficient
 way to convert objects to and from Redis hash entries (`HashEntry[]`).
 
+[![CI Build](https://github.com/iamr8/R8.RedisHashMap/actions/workflows/ci.yml/badge.svg)](https://github.com/iamr8/R8.RedisHashMap/actions/workflows/ci.yml)
+
 ## Features
 
 - 🚀 **High Performance**: All implementations are generated at compile time using Source Generators, ensuring zero
