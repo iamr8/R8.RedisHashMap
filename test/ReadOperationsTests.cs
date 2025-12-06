@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Bogus;
 using FluentAssertions;
 using R8.RedisHashMap.Tests.Models;
@@ -206,8 +207,10 @@ public class ReadOperationsTests
         if (originalProduct.Specifications != null)
         {
             roundTrippedProduct.Specifications.Should().NotBeNull();
-            roundTrippedProduct.Specifications!.RootElement.ToString()
-                .Should().Be(originalProduct.Specifications.RootElement.ToString());
+            
+            var originalJsonNode = JsonNode.Parse(originalProduct.Specifications.RootElement.GetRawText());
+            var roundTrippedJsonNode = JsonNode.Parse(roundTrippedProduct.Specifications.RootElement.GetRawText());
+            JsonNode.DeepEquals(originalJsonNode, roundTrippedJsonNode).Should().BeTrue();
         }
 
         if (originalProduct.RelatedProducts != null && originalProduct.RelatedProducts.Count > 0)
@@ -469,9 +472,9 @@ public class ReadOperationsTests
 
         // Assert - JsonDocument
         roundTrippedProduct.Specifications.Should().NotBeNull();
-        var originalJson = originalProduct.Specifications!.RootElement.ToString();
-        var roundTrippedJson = roundTrippedProduct.Specifications!.RootElement.ToString();
-        roundTrippedJson.Should().Be(originalJson);
+        var originalJson = JsonNode.Parse(originalProduct.Specifications!.RootElement.GetRawText());
+        var roundTrippedJson = JsonNode.Parse(roundTrippedProduct.Specifications!.RootElement.GetRawText());
+        JsonNode.DeepEquals(originalJson, roundTrippedJson).Should().BeTrue();
 
         // Assert - List<string>
         roundTrippedProduct.RelatedProducts.Should().NotBeNull();

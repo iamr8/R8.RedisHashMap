@@ -208,7 +208,7 @@ public class WriteOperationsTests
             entryDict["name"].ToString().Should().Be(result.Product.Name);
 
             // Verify price conversion
-            decimal.Parse(entryDict["price"].ToString()).Should().Be(result.Product.Price);
+            decimal.Parse(entryDict["price"].ToString(), System.Globalization.CultureInfo.InvariantCulture).Should().Be(result.Product.Price);
         }
     }
 
