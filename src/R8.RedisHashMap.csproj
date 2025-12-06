@@ -4,6 +4,20 @@
         <TargetFramework>netstandard2.1</TargetFramework>
         <Nullable>enable</Nullable>
         <EnforceExtendedAnalyzerRules>true</EnforceExtendedAnalyzerRules>
+        
+        <!-- NuGet Package Metadata -->
+        <PackageId>R8.RedisHashMap</PackageId>
+        <Authors>Arash</Authors>
+        <Company>R8</Company>
+        <Product>R8.RedisHashMap</Product>
+        <Description>High-performance Redis hash mapping library for .NET using Source Generators for zero runtime overhead</Description>
+        <PackageTags>redis;hash;mapper;source-generator;performance;netstandard</PackageTags>
+        <PackageProjectUrl>https://github.com/arash/R8.RedisHashMap</PackageProjectUrl>
+        <RepositoryUrl>https://github.com/arash/R8.RedisHashMap</RepositoryUrl>
+        <RepositoryType>git</RepositoryType>
+        <PackageLicenseExpression>MIT</PackageLicenseExpression>
+        <PackageReadmeFile>README.md</PackageReadmeFile>
+        <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
     </PropertyGroup>
 
     <ItemGroup>
@@ -18,6 +32,7 @@
 
     <ItemGroup>
         <None Include="$(OutputPath)\$(AssemblyName).dll" Pack="true" PackagePath="analyzers/dotnet/cs" Visible="true"/>
+        <None Include="../README.md" Pack="true" PackagePath="/" />
     </ItemGroup>
 
 </Project>

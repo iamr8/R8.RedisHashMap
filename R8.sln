@@ -15,6 +15,9 @@ EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "_SolutionFolder", "_SolutionFolder", "{F88BEF82-210E-489C-8165-879474BF54EE}"
 	ProjectSection(SolutionItems) = preProject
 		README.md = README.md
+		qodana.yaml = qodana.yaml
+		global.json = global.json
+		create-release.sh = create-release.sh
 	EndProjectSection
 EndProject
 Global
