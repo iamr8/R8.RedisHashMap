@@ -176,10 +176,7 @@ The library is designed for high performance:
 - .NET 6.0 or higher
 - StackExchange.Redis
 
-## License
-
-[Specify your license here]
-
+  
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
