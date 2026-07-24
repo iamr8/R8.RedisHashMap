@@ -3,7 +3,6 @@ using System.Diagnostics;
 using Bogus;
 using FluentAssertions;
 using StackExchange.Redis;
-using Xunit.Abstractions;
 
 namespace R8.RedisHashMap.Tests;
 

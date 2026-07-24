@@ -13,6 +13,6 @@ public class RolesArrayCacheConverter : CacheValueConverter<UserRoleType[]>
 
     public override UserRoleType[] Parse(RedisValue value)
     {
-        return JsonSerializer.Deserialize<UserRoleType[]>(((ReadOnlyMemory<byte>)value).Span);
+        return JsonSerializer.Deserialize<UserRoleType[]>(((ReadOnlyMemory<byte>)value).Span) ?? Array.Empty<UserRoleType>();
     }
 }

@@ -11,6 +11,6 @@ public class StringCacheConverter : CacheValueConverter<string>
 
     public override string Parse(RedisValue value)
     {
-        return value.IsNullOrEmpty ? null : (string)value;
+        return value.IsNullOrEmpty ? null! : ((string)value)!;
     }
 }

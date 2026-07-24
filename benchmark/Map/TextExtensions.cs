@@ -41,7 +41,7 @@ public static class TextExtensions
             c[++lastIndex] = ch;
         }
 
-        c = c[..(lastIndex + 1)];
+        c = c.Slice(0, lastIndex + 1);
         return new string(c);
     }
 
@@ -112,7 +112,7 @@ public static class TextExtensions
     {
         return !string.IsNullOrEmpty(s)
             ? s.Replace(" ", "%20")
-            : null;
+            : string.Empty;
     }
 
     /// <summary>
@@ -137,7 +137,7 @@ public static class TextExtensions
         str = Regex.Replace(str, @"\s+", " ").Trim();
 
         // cut and trim
-        str = str[..(str.Length <= 45 ? str.Length : 45)].Trim();
+        str = str.Substring(0, str.Length <= 45 ? str.Length : 45).Trim();
         str = Regex.Replace(str, @"\s", "-"); // hyphens
 
         return str;
@@ -176,7 +176,7 @@ public static class TextExtensions
     /// <exception cref="ArgumentNullException">Thrown when the string is null or empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the start or end strings are null or empty.</exception>
     /// <returns>A <see cref="string" /> between two strings.</returns>
-    public static string GetStringBetween(this string str, string start, string end)
+    public static string? GetStringBetween(this string str, string start, string end)
     {
         if (str == null)
             throw new ArgumentNullException(nameof(str));
@@ -251,7 +251,7 @@ public static class TextExtensions
             throw new ArgumentOutOfRangeException(nameof(value));
 
         var nSign = Math.Sign(nth);
-        var inputLength = str?.Length ?? 0;
+        var inputLength = str.Length;
         int index;
         int count;
 
@@ -298,27 +298,6 @@ public static class TextExtensions
         if (totalWords <= wordLimit)
             return value;
 
-        static int FindValidDot(string input, int startIndex)
-        {
-            if (startIndex == -1)
-                return -1;
-
-            var index = startIndex;
-            while (index < input.Length)
-            {
-                index = input.IndexOf('.', index);
-                if (index == -1)
-                    break;
-
-                if (index == input.Length - 1 || char.IsWhiteSpace(input[index + 1]) || input[index + 1] == '\n')
-                    return index;
-
-                index++;
-            }
-
-            return input.Length - 1;
-        }
-
         foreach (var line in lines)
         {
             if (string.IsNullOrWhiteSpace(line))
@@ -356,7 +335,7 @@ public static class TextExtensions
                     if (nextDotIndex == -1)
                     {
                         nextDotIndex = value.Length - 1;
-                        restOfValue = value[lastIndex..nextDotIndex];
+                        restOfValue = value.Substring(lastIndex, nextDotIndex - lastIndex + 1);
                         endOfValue = true;
                     }
 
@@ -364,7 +343,7 @@ public static class TextExtensions
                         truncated.Append(' ').Append(restOfValue.Trim());
 
                     if (!endOfValue)
-                        truncated.Append(truncated[^1] == '.' ? ".." : "...");
+                        truncated.Append(truncated[truncated.Length - 1] == '.' ? ".." : "...");
 
                     break;
                 }

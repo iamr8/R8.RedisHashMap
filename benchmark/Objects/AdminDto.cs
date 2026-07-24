@@ -9,12 +9,12 @@ public class AdminDto
     public int Id { get; set; }
 
     [CacheConverter(typeof(StringCacheConverter))]
-    public string FirstName { get; set; }
+    public string FirstName { get; set; } = string.Empty;
 
-    public string LastName { get; set; }
+    public string LastName { get; set; } = string.Empty;
 
     public UserRoleType CurrentRole { get; set; }
 
     [CacheConverter(typeof(RolesArrayCacheConverter))]
-    public UserRoleType[] Roles { get; set; }
+    public UserRoleType[] Roles { get; set; } = Array.Empty<UserRoleType>();
 }

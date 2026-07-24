@@ -43,7 +43,8 @@ public class ReadOperationsTests
             .RuleFor(p => p.Rating, f => f.Random.Double(1, 5))
             .RuleFor(p => p.IsAvailable, f => f.Random.Bool())
             .RuleFor(p => p.ImageData, f => f.Random.Bytes(100))
-            .RuleFor(p => p.Specifications, f => JsonDocument.Parse($$"""{"cpu": "{{f.Random.AlphaNumeric(10)}}", "ram": {{f.Random.Int(4, 64)}}}"""))
+            .RuleFor(p => p.Specifications, f => JsonDocument.Parse($@"
+{{""cpu"": ""{f.Random.AlphaNumeric(10)}"", ""ram"": {f.Random.Int(4, 64)}}}"))
             .RuleFor(p => p.RelatedProducts, f => f.Make(3, () => f.Commerce.Product()))
             .RuleFor(p => p.VariantMap, f => new Dictionary<int, string>
             {
@@ -418,14 +419,13 @@ public class ReadOperationsTests
             Rating = 4.8,
             IsAvailable = true,
             ImageData = new byte[] { 0x01, 0x02, 0x03, 0xFF, 0xFE },
-            Specifications = JsonDocument.Parse("""
-                                                {
-                                                    "cpu": "Intel i9-13900K",
-                                                    "ram": 32,
-                                                    "storage": "2TB NVMe SSD",
-                                                    "features": ["WiFi 6E", "Bluetooth 5.3", "Thunderbolt 4"]
-                                                }
-                                                """),
+            Specifications = JsonDocument.Parse(@"
+{
+    ""cpu"": ""Intel i9-13900K"",
+    ""ram"": 32,
+    ""storage"": ""2TB NVMe SSD"",
+    ""features"": [""WiFi 6E"", ""Bluetooth 5.3"", ""Thunderbolt 4""]
+}"),
             RelatedProducts = new List<string>
             {
                 "Product-A",

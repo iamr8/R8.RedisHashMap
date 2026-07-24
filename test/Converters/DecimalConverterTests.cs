@@ -21,7 +21,7 @@ public class DecimalConverterTests
 
         // Assert
         redisValue.IsNullOrEmpty.Should().BeFalse();
-        ((string)redisValue).Should().NotBeNullOrEmpty();
+        ((string)redisValue)!.Should().NotBeNullOrEmpty();
     }
 
     [Theory]

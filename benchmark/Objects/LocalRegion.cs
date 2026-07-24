@@ -40,8 +40,11 @@ public class LocalRegion : IRegion, IFormatProvider
     /// <summary>
     ///     Initializes a new instance of <see cref="LocalRegion" />.
     /// </summary>
-    private LocalRegion()
+    private LocalRegion(CultureInfo culture, ApplicationCurrentRegion id, RegionInfo region)
     {
+        Culture = culture;
+        Id = id;
+        Region = region;
     }
 
     public static LocalRegion Iran => GetOrCreate(IranCultureName);
@@ -124,12 +127,7 @@ public class LocalRegion : IRegion, IFormatProvider
             _ => throw new InvalidOperationException("Unmatched region id.")
         };
 
-        cachedRegion = new LocalRegion
-        {
-            Id = id,
-            Culture = culture,
-            Region = new RegionInfo(cultureName),
-        };
+        cachedRegion = new LocalRegion(culture, id, new RegionInfo(cultureName));
         Cached.TryAdd(cultureName, cachedRegion);
         return cachedRegion;
     }
@@ -159,12 +157,7 @@ public class LocalRegion : IRegion, IFormatProvider
         if (culture.IsNeutralCulture)
             throw new ArgumentException("Culture is a neutral culture.", nameof(id));
 
-        cachedRegion = new LocalRegion
-        {
-            Id = id,
-            Culture = culture,
-            Region = new RegionInfo(cultureName),
-        };
+        cachedRegion = new LocalRegion(culture, id, new RegionInfo(cultureName));
         Cached.TryAdd(cultureName, cachedRegion);
         return cachedRegion;
     }

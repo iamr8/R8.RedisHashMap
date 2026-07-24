@@ -34,6 +34,9 @@ public static class MapCache
 
     internal static IList<HashEntry> GetHashEntries<TModel>(TModel model, JsonSerializerOptions serializerOptions)
     {
+        if (model is null)
+            throw new ArgumentNullException(nameof(model));
+
         switch (model)
         {
             case HashEntry[] arr:
@@ -65,7 +68,7 @@ public static class MapCache
                         byte[] bytes => (RedisValue)bytes,
                         RedisValue redisValue => redisValue,
                         string str => (RedisValue)str.ToCamelCase(),
-                        _ => (RedisValue)k.ToString().ToCamelCase()
+                        _ => (RedisValue)k.ToString()!.ToCamelCase()
                     };
                     if (v is not null)
                     {
@@ -78,7 +81,7 @@ public static class MapCache
                     }
                 }
 
-                mem = mem[..(lastIndex + 1)];
+                mem = mem.Slice(0, lastIndex + 1);
                 var arr = mem.ToArray();
                 return arr;
             }
@@ -102,14 +105,14 @@ public static class MapCache
                     mem.Span[++lastIndex] = new HashEntry(prop.Name, value);
                 }
 
-                mem = mem[..(lastIndex + 1)];
+                mem = mem.Slice(0, lastIndex + 1);
                 var arr = mem.ToArray();
                 return arr;
             }
         }
     }
 
-    public static RedisValue SerializeToRedisValue(this object value, Type type, JsonSerializerOptions serializerOptions)
+    public static RedisValue SerializeToRedisValue(this object? value, Type type, JsonSerializerOptions serializerOptions)
     {
         switch (value)
         {
@@ -140,19 +143,19 @@ public static class MapCache
         }
     }
 
-    private static object Deserialize(this RedisValue redisValue, Type propertyType, JsonSerializerOptions serializerOptions)
+    private static object? Deserialize(this RedisValue redisValue, Type propertyType, JsonSerializerOptions serializerOptions)
     {
         if (redisValue.IsNullOrEmpty)
             return default;
 
-        object key;
+        object? key;
         if (propertyType == typeof(RedisValue))
         {
             key = redisValue;
         }
         else if (propertyType == typeof(byte[]))
         {
-            key = (byte[])redisValue;
+            key = (byte[]?)redisValue;
         }
         else if (propertyType == typeof(string))
         {
@@ -183,12 +186,12 @@ public static class MapCache
         return resultType;
     }
 
-    public static Type GetEnumerableUnderlyingType(this Type type)
+    public static Type? GetEnumerableUnderlyingType(this Type type)
     {
         return type.GetGenericUnderlyingType(typeof(IList<>));
     }
 
-    public static Type GetGenericUnderlyingType(this Type type, Type genericType)
+    public static Type? GetGenericUnderlyingType(this Type type, Type genericType)
     {
         if (type == null)
             throw new ArgumentNullException(nameof(type));

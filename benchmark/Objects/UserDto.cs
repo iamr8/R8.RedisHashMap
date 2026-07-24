@@ -9,8 +9,8 @@ namespace R8.RedisHashMap.Test.Objects;
 public class UserDto
 {
     public int Id { get; set; }
-    public string FirstName { get; set; }
-    public string LastName { get; set; }
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
 
     public string? Email { get; set; }
 
@@ -18,10 +18,10 @@ public class UserDto
 
     public int Age { get; init; }
 
-    public UserRoleType[] Roles { get; set; }
-    public string[] Tags { get; set; }
+    public UserRoleType[] Roles { get; set; } = Array.Empty<UserRoleType>();
+    public string[] Tags { get; set; } = Array.Empty<string>();
 
-    public Dictionary<string, string> Data { get; set; }
+    public Dictionary<string, string> Data { get; set; } = new();
     // public List<string> Names { get; set; }
     //
     // public JsonDocument? Document { get; set; }

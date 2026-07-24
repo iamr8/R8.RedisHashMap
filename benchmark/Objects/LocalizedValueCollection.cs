@@ -14,12 +14,12 @@ namespace R8.RedisHashMap.Test.Objects;
 [JsonConverter(typeof(LocalizedValueCollectionJsonConverter))]
 public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
 {
-    private readonly Dictionary<CultureInfo, string> _dictionary;
+    private readonly Dictionary<CultureInfo, string?> _dictionary;
 
     /// <summary>
     ///     Initializes a new instance of the <see cref="LocalizedValueCollection" /> class.
     /// </summary>
-    public LocalizedValueCollection() : this(new Dictionary<CultureInfo, string>())
+    public LocalizedValueCollection() : this(new Dictionary<CultureInfo, string?>())
     {
     }
 
@@ -27,7 +27,7 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     ///     Initializes a new instance of the <see cref="LocalizedValueCollection" /> class.
     /// </summary>
     /// <param name="dictionary">A dictionary of localized values.</param>
-    public LocalizedValueCollection(Dictionary<CultureInfo, string> dictionary)
+    public LocalizedValueCollection(Dictionary<CultureInfo, string?> dictionary)
     {
         _dictionary = dictionary;
     }
@@ -47,7 +47,7 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     ///     Initializes a new instance of the <see cref="LocalizedValueCollection" /> class.
     /// </summary>
     /// <param name="dictionary">A dictionary of localized values.</param>
-    public LocalizedValueCollection(Dictionary<string, string> dictionary) : this(dictionary.ToDictionary(x => new CultureInfo(x.Key), x => x.Value))
+    public LocalizedValueCollection(Dictionary<string, string> dictionary) : this(dictionary.ToDictionary(x => new CultureInfo(x.Key), x => (string?)x.Value))
     {
     }
 
@@ -64,11 +64,9 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     /// </summary>
     public bool IsEmpty => _dictionary.Count == 0 || _dictionary.All(x => string.IsNullOrWhiteSpace(x.Value));
 
-    public string CustomText { get; set; }
+    public string CustomText { get; set; } = string.Empty;
 
-    public string CustomText2 { get; set; }
-
-    private readonly int _customText;
+    public string CustomText2 { get; set; } = string.Empty;
 
     /// <summary>
     ///     Gets or sets the localized value for the specified region.
@@ -121,14 +119,14 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     }
 
     public IEnumerable<CultureInfo> Keys => _dictionary.Keys;
-    public IEnumerable<string> Values => _dictionary.Values;
+    public IEnumerable<string> Values => _dictionary.Values.Select(v => v ?? string.Empty);
 
     public bool ContainsKey(CultureInfo key)
     {
         return _dictionary.ContainsKey(key);
     }
 
-    public bool TryGetValue(CultureInfo key, out string value)
+    public bool TryGetValue(CultureInfo key, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out string value)
     {
         return _dictionary.TryGetValue(key, out value);
     }
@@ -160,7 +158,7 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
             };
             options.Converters.Add(new JsonCultureToStringConverter());
             options.Converters.Add(new JsonRegionInfoToStringConverter());
-            options.AddContext<LocalizedValueCollectionJsonContext>();
+            options.TypeInfoResolverChain.Add(LocalizedValueCollectionJsonContext.Default);
 
             return options;
         }
@@ -186,9 +184,9 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
             return new LocalizedValueCollection();
 
         if (str.StartsWith('{'))
-            return JsonSerializer.Deserialize<LocalizedValueCollection>(str, SerializerOptions);
+            return JsonSerializer.Deserialize<LocalizedValueCollection>(str, SerializerOptions) ?? new LocalizedValueCollection();
 
-        return new LocalizedValueCollection(new Dictionary<CultureInfo, string>
+        return new LocalizedValueCollection(new Dictionary<CultureInfo, string?>
         {
             { LocalRegion.Iran.Culture, str }
         });
@@ -198,7 +196,7 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     ///     Returns a dictionary of localized values.
     /// </summary>
     /// <returns>A dictionary of localized values.</returns>
-    public Dictionary<CultureInfo, string> AsDictionary()
+    public Dictionary<CultureInfo, string?> AsDictionary()
     {
         return _dictionary;
     }
@@ -209,10 +207,10 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     /// <returns>An instance of <see cref="LocalizedValueCollection" /> object.</returns>
     public static LocalizedValueCollection Empty()
     {
-        return new LocalizedValueCollection(LocalRegion.SupportedRegions.ToDictionary(x => x.Culture, x => (string)null));
+        return new LocalizedValueCollection(LocalRegion.SupportedRegions.ToDictionary(x => x.Culture, x => (string?)null));
     }
 
-    public override bool Equals(object obj)
+    public override bool Equals(object? obj)
     {
         if (ReferenceEquals(null, obj)) return false;
         if (ReferenceEquals(this, obj)) return true;
@@ -245,7 +243,7 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
     {
         public override LocalizedValueCollection Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options)
         {
-            var dictionary = new Dictionary<CultureInfo, string>();
+            var dictionary = new Dictionary<CultureInfo, string?>();
 
             if (reader.TokenType != JsonTokenType.StartObject)
                 throw new JsonException("The json must start with an object.");
@@ -253,7 +251,7 @@ public class LocalizedValueCollection : IReadOnlyDictionary<CultureInfo, string>
             while (reader.Read())
                 if (reader.TokenType == JsonTokenType.PropertyName)
                 {
-                    var key = reader.GetString();
+                    var key = reader.GetString() ?? throw new JsonException("Property name cannot be null.");
                     var culture = CultureInfo.GetCultureInfo(key);
                     reader.Read();
                     var value = reader.GetString();

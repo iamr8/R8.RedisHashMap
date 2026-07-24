@@ -22,7 +22,7 @@ public class Class1
 {
     public class Person
     {
-        public string Name { get; set; }
+        public string Name { get; set; } = string.Empty;
         public int Age { get; set; }
     }
 
@@ -49,16 +49,15 @@ public class Class1
     }
 }
 
-// [SimpleJob(RuntimeMoniker.Net60)]
-// [SimpleJob(RuntimeMoniker.Net80)]
+[SimpleJob(RuntimeMoniker.Net60)]
+[SimpleJob(RuntimeMoniker.Net80)]
 [SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [ThreadingDiagnoser]
 [GcServer(true)]
 public class WriteBenchmark
 {
-    private ConnectionMultiplexer connectionMultiplexer;
-    private Objects.UserDto[] models;
+    private Objects.UserDto[] models = null!;
 
     [Params(10_000)] public int N;
 
@@ -154,7 +153,7 @@ public class WriteBenchmark
 [GcServer(true)]
 public class ReadBenchmark
 {
-    private HashEntry[] hashEntries;
+    private HashEntry[] hashEntries = null!;
     [Params(10_000)] public int N;
 
     [GlobalSetup]

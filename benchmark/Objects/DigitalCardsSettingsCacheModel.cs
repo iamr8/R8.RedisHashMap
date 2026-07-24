@@ -7,25 +7,25 @@ namespace R8.RedisHashMap.Test.Objects;
 internal record PhysicalCardCacheModel
 {
     public int Id { get; set; }
-    public string Name { get; set; }
+    public string Name { get; set; } = string.Empty;
 
-    public string Code { get; set; }
+    public string Code { get; set; } = string.Empty;
     public PhysicalCardType Type { get; set; }
     public int PublishYear { get; set; }
     public int SubType { get; set; }
-    public string CardIdCode { get; set; }
+    public string CardIdCode { get; set; } = string.Empty;
 
-    public LocalizedValueCollection VideoLink { get; set; }
-    public LocalizedValueCollection Description { get; set; }
+    public LocalizedValueCollection VideoLink { get; set; } = new();
+    public LocalizedValueCollection Description { get; set; } = new();
     public bool IsDeleted { get; set; }
 
     public int CollectionScore { get; set; }
 
-    public PlayerCard Player { get; set; }
-    public CoachCard Coach { get; set; }
-    public ClubCard Club { get; set; }
-    public VariationCard Variation { get; set; }
-    public JournalCard Journal { get; set; }
+    public PlayerCard Player { get; set; } = new();
+    public CoachCard Coach { get; set; } = new();
+    public ClubCard Club { get; set; } = new();
+    public VariationCard Variation { get; set; } = new();
+    public JournalCard Journal { get; set; } = new();
 
     public class PlayingCard
     {
@@ -65,12 +65,12 @@ internal record PhysicalCardCacheModel
     {
         public int PresetId { get; set; }
         public int NumberOfCards { get; set; }
-        public List<ClubDefinition> Definitions { get; set; }
+        public List<ClubDefinition> Definitions { get; set; } = new();
 
         public class ClubDefinition
         {
             public PhysicalClubCardDefinitionType Type { get; set; }
-            public string Value { get; set; }
+            public string Value { get; set; } = string.Empty;
             public int NumberOfCards { get; set; }
         }
     }
@@ -127,7 +127,7 @@ public class JsonCultureToStringConverter : JsonConverter<CultureInfo>
     {
         var twoIso = reader.GetString();
         if (string.IsNullOrEmpty(twoIso))
-            return null;
+            return null!;
 
         return new CultureInfo(twoIso);
     }
@@ -148,7 +148,7 @@ public class JsonRegionInfoToStringConverter : JsonConverter<RegionInfo>
     {
         var twoIso = reader.GetString();
         if (string.IsNullOrEmpty(twoIso))
-            return null;
+            return null!;
 
         return new RegionInfo(twoIso);
     }

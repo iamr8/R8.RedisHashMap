@@ -44,7 +44,11 @@ public class WriteOperationsTests
             .RuleFor(p => p.Rating, f => f.Random.Double(1, 5))
             .RuleFor(p => p.IsAvailable, f => f.Random.Bool())
             .RuleFor(p => p.ImageData, f => f.Random.Bytes(100))
-            .RuleFor(p => p.Specifications, f => JsonDocument.Parse($$"""{"cpu": "{{f.Random.AlphaNumeric(10)}}", "ram": {{f.Random.Int(4, 64)}}}"""))
+            .RuleFor(p => p.Specifications, f => JsonDocument.Parse($@"
+{{
+    ""cpu"": ""{f.Random.AlphaNumeric(10)}"",
+    ""ram"": {f.Random.Int(4, 64)}
+}}"))
             .RuleFor(p => p.RelatedProducts, f => f.Make(3, () => f.Commerce.Product()))
             .RuleFor(p => p.VariantMap, f => new Dictionary<int, string>
             {
@@ -316,7 +320,11 @@ public class WriteOperationsTests
             Rating = 4.5,
             IsAvailable = true,
             ImageData = new byte[] { 1, 2, 3, 4, 5 },
-            Specifications = JsonDocument.Parse("""{"cpu": "Intel i7", "ram": 16}"""),
+            Specifications = JsonDocument.Parse(@"
+{
+    ""cpu"": ""Intel i7"",
+    ""ram"": 16
+}"),
             RelatedProducts = new List<string> { "Product1", "Product2", "Product3" },
             VariantMap = new Dictionary<int, string>
             {
