@@ -7,6 +7,8 @@ namespace R8.RedisHashMap.Tests;
 [CacheObject(typeof(TestProduct))]
 [CacheObject(typeof(TestSession))]
 [CacheObject(typeof(AdvancedTestModel))]
+[CacheObject(typeof(StressModel))]
+[CacheObject(typeof(ConverterAnnotatedModel))]
 public partial class TestCacheContext
 {
 }
