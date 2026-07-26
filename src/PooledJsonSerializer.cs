@@ -19,8 +19,53 @@ namespace R8.RedisHashMap
         public static readonly JsonWriterOptions ReusableJsonWriterOptions = new JsonWriterOptions
         {
             Indented = false,
-            SkipValidation = false
+            // Generated serialization code always produces structurally valid JSON,
+            // so validation is skipped (same as JsonSerializer's own pooled writers).
+            SkipValidation = true
         };
+
+        /// <summary>
+        ///     Derives the <see cref="JsonWriterOptions" /> for a reusable <see cref="Utf8JsonWriter" /> from the
+        ///     serializer options in effect. Encoding and indentation live on the writer rather than on the options
+        ///     passed to <see cref="JsonSerializer.Serialize{TValue}(Utf8JsonWriter,TValue,JsonTypeInfo{TValue})" />,
+        ///     so they have to be carried across explicitly for the output to match
+        ///     <see cref="JsonSerializer.SerializeToUtf8Bytes{TValue}(TValue,JsonSerializerOptions)" />.
+        /// </summary>
+        public static JsonWriterOptions CreateWriterOptions(JsonSerializerOptions? serializerOptions)
+        {
+            JsonSerializerOptions options = serializerOptions ?? JsonSerializerOptions.Default;
+
+            var writerOptions = new JsonWriterOptions
+            {
+                Encoder = options.Encoder,
+                Indented = options.WriteIndented,
+                MaxDepth = options.MaxDepth,
+                // Generated serialization code always produces structurally valid JSON,
+                // so validation is skipped (same as JsonSerializer's own pooled writers).
+                SkipValidation = true
+            };
+
+#if NET9_0_OR_GREATER
+            writerOptions.IndentCharacter = options.IndentCharacter;
+            writerOptions.IndentSize = options.IndentSize;
+            writerOptions.NewLine = options.NewLine;
+#endif
+
+            return writerOptions;
+        }
+
+        /// <summary>
+        ///     Resolves the <see cref="JsonTypeInfo{TValue}" /> for <typeparamref name="TValue" /> from the given options,
+        ///     or returns null when the options cannot supply metadata for the type (e.g. reflection disabled).
+        /// </summary>
+        /// <typeparam name="TValue">The type to resolve serialization metadata for.</typeparam>
+        /// <param name="options">The options to resolve the metadata from.</param>
+        /// <returns>The resolved <see cref="JsonTypeInfo{TValue}" />, or null when unavailable.</returns>
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static JsonTypeInfo<TValue>? GetTypeInfoOrNull<TValue>(JsonSerializerOptions options)
+        {
+            return options.TryGetTypeInfo(typeof(TValue), out JsonTypeInfo? typeInfo) ? typeInfo as JsonTypeInfo<TValue> : null;
+        }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public static ReadOnlyMemory<byte> GetBytes<T>(ArrayBufferWriter<byte> arrayBufferWriter, Utf8JsonWriter utf8JsonWriter, T value, JsonSerializerOptions? serializerOptions = null)

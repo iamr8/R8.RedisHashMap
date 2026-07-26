@@ -16,6 +16,13 @@ namespace R8.RedisHashMap
     {
         private readonly ImmutableArray<TypeSymbol> _arguments;
         private readonly ITypeSymbol? _enumUnderlyingType;
+
+        /// <summary>Element type when the value is <c>T[]</c> or <c>List&lt;T&gt;</c>, otherwise null.</summary>
+        private readonly ITypeSymbol? _sequenceElementType;
+
+        private readonly bool _isGenericList;
+        private readonly bool _isStringStringDictionary;
+
         public readonly bool HasConverter;
 
         public readonly bool IsIEnumerable;
@@ -78,6 +85,24 @@ namespace R8.RedisHashMap
                 _arguments = ImmutableArray<TypeSymbol>.Empty;
             }
 
+            var namedType = type as INamedTypeSymbol;
+            var genericNamespace = namedType?.ContainingNamespace?.ToDisplayString();
+            _isGenericList = namedType != null &&
+                             namedType.Name.Equals("List", StringComparison.Ordinal) &&
+                             namedType.TypeArguments.Length == 1 &&
+                             string.Equals(genericNamespace, "System.Collections.Generic", StringComparison.Ordinal);
+            _isStringStringDictionary = namedType != null &&
+                                        namedType.Name.Equals("Dictionary", StringComparison.Ordinal) &&
+                                        namedType.TypeArguments.Length == 2 &&
+                                        string.Equals(genericNamespace, "System.Collections.Generic", StringComparison.Ordinal) &&
+                                        namedType.TypeArguments[0].SpecialType == SpecialType.System_String &&
+                                        namedType.TypeArguments[1].SpecialType == SpecialType.System_String;
+
+            if (IsArray)
+                _sequenceElementType = ((IArrayTypeSymbol)type).ElementType;
+            else if (_isGenericList)
+                _sequenceElementType = namedType!.TypeArguments[0];
+
             IsReadOnlyMemoryOfBytes = type.Name.Equals(nameof(ReadOnlyMemory<byte>), StringComparison.Ordinal) && _arguments.Length == 1 && _arguments[0].Type.SpecialType == SpecialType.System_Byte;
             IsRedisValue = type.Name.Equals(nameof(RedisValue), StringComparison.Ordinal);
             Converter = ConverterTypeSymbol.GetConverter(context, this);
@@ -111,8 +136,20 @@ namespace R8.RedisHashMap
 
         public bool IsNullable { get; }
 
-        public bool HasJsonTypeInfo { get; private set; }
-        public bool HasUtf8JsonWriter { get; private set; }
+        /// <summary>
+        ///     Indicates the property can be converted straight to a <see cref="RedisValue" /> without JSON serialization.
+        /// </summary>
+        public bool IsDirectWrite => HasConverter || (CastFromRedisValue && CastToRedisValue) || IsRedisValue || IsEnum;
+
+        /// <summary>
+        ///     Indicates the property is written by serializing its value as JSON.
+        /// </summary>
+        public bool IsJsonWrite => !IsDirectWrite;
+
+        /// <summary>
+        ///     Indicates the property benefits from a cached <see cref="System.Text.Json.Serialization.Metadata.JsonTypeInfo{T}" />.
+        /// </summary>
+        public bool RequiresJsonTypeInfo => IsJsonWrite && !IsJsonElement && !IsJsonDocument;
 
         public bool IsBuiltinType =>
             (CastFromRedisValue && CastToRedisValue) ||
@@ -207,148 +244,216 @@ namespace R8.RedisHashMap
             return false;
         }
 
-        public string? GetSetterWrapper(ISymbol propertySymbol, string? content)
+        /// <summary>
+        ///     Returns the condition that determines whether the property value should be written,
+        ///     or null when the value is always written (non-nullable value types).
+        /// </summary>
+        internal string? GetPresenceCondition(string valueIdentifier)
         {
-            var propertyIdentifier = $"obj.{propertySymbol.Name}";
-            var valueIdentifier = $"value_{propertySymbol.Name}";
-            var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
-
-            var declareLocalVariable = $@"{typeIdentifier} {valueIdentifier} = {propertyIdentifier};
-                ";
             if (IsReadOnlyMemoryOfBytes)
-                return declareLocalVariable + $@"if ({valueIdentifier}.Length > 0)
-                {{
-                    {content}
-                }}";
+                return $"{valueIdentifier}.Length > 0";
 
             if (IsJsonElement)
             {
                 if (IsNullable)
-                    return declareLocalVariable + $@"if ({valueIdentifier}.HasValue && {valueIdentifier}.Value.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.Value.ValueKind != JsonValueKind.Null)
-                {{
-                    {content}
-                }}";
+                    return $"{valueIdentifier}.HasValue && {valueIdentifier}.Value.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.Value.ValueKind != JsonValueKind.Null";
 
-                return declareLocalVariable + $@"if ({valueIdentifier}.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.ValueKind != JsonValueKind.Null)
-                {{
-                    {content}
-                }}";
+                return $"{valueIdentifier}.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.ValueKind != JsonValueKind.Null";
             }
 
             if (IsJsonDocument)
-                return declareLocalVariable + @$"if ({valueIdentifier} != {(IsNullable ? "null" : "default")} && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Null)
-                {{
-                    {content}
-                }}";
+                return $"{valueIdentifier} != {(IsNullable ? "null" : "default")} && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Undefined && {valueIdentifier}.RootElement.ValueKind != JsonValueKind.Null";
 
             if (IsValueType)
-            {
-                if (IsNullable)
-                    return declareLocalVariable + $@"if ({valueIdentifier}.HasValue)
-                {{
-                    {content}
-                }}";
-
-                return declareLocalVariable + $@"{{
-                    {content}
-                }}";
-            }
+                return IsNullable ? $"{valueIdentifier}.HasValue" : null;
 
             if (IsString || IsArray)
-                return declareLocalVariable + $@"if ({valueIdentifier} is {{ Length: > 0 }})
-                {{
-                    {content}
-                }}";
+                return $"{valueIdentifier} is {{ Length: > 0 }}";
 
             if (IsDictionary || IsCollection || IsList)
-                return declareLocalVariable + $@"if ({valueIdentifier} is {{ Count: > 0 }})
-                {{
-                    {content}
-                }}";
+                return $"{valueIdentifier} is {{ Count: > 0 }}";
 
             if (IsIEnumerable)
-                return declareLocalVariable + $@"if ({valueIdentifier}.Any())
-                {{
-                    {content}
-                }}";
+                return $"{valueIdentifier}.Any()";
 
-            return declareLocalVariable + $@"if ({valueIdentifier} != {(IsNullable ? "null" : "default")})
-                {{
-                    {content}
-                }}";
+            return $"{valueIdentifier} != {(IsNullable ? "null" : "default")}";
         }
 
-        internal string? GetSetterContent(ContextOptions contextOptions, ISymbol propertySymbol, string serializerParameterName)
+        /// <summary>
+        ///     Builds the statement(s) that write a direct (non-JSON) property into the entries array
+        ///     using a bounds-check-free <c>Unsafe.Add</c> write.
+        /// </summary>
+        internal string GetDirectWriteStatement(ContextOptions contextOptions)
         {
+            var propertySymbol = Symbol!;
             var fieldIdentifier = $"field_{propertySymbol.Name}";
             var valueIdentifier = $"value_{propertySymbol.Name}";
-            const string setter = "pooledArray[++index] = ";
+            const string setter = "Unsafe.Add(ref entriesRef, index++) = ";
 
             if (HasConverter)
             {
                 var hasDotValue = IsNullable && IsValueType;
                 return $@"{nameof(RedisValue)} redis_{propertySymbol.Name} = {contextOptions.DisplayName}.Default.{Converter!.ConverterName}.{nameof(CacheValueConverter<string>.GetBytes)}({valueIdentifier}{(hasDotValue ? ".Value" : "")});
-                    if (!redis_{propertySymbol.Name}.{nameof(RedisValue.IsNullOrEmpty)})
-                    {{
-                        {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});
-                    }}";
+                if (!redis_{propertySymbol.Name}.{nameof(RedisValue.IsNullOrEmpty)})
+                {{
+                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});
+                }}";
             }
-
-            if (CastFromRedisValue && CastToRedisValue)
-            {
-                if (IsValueType)
-                    return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
-
-                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier});";
-            }
-
-            if (IsRedisValue)
-                return $@"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
 
             if (IsEnum)
                 return $"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)})({_enumUnderlyingType}){valueIdentifier}{(IsNullable ? ".Value" : "")});";
 
-            if (IsJsonElement)
-            {
-                HasUtf8JsonWriter = true;
-                return $@"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")});
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            if (IsJsonDocument)
-            {
-                HasUtf8JsonWriter = true;
-                return @$"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}.RootElement);
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            if (IsValueType) // User-defined struct
-            {
-                HasUtf8JsonWriter = true;
-                return $@"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}{(IsNullable ? ".Value" : "")}, {serializerParameterName});
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            if (IsReferenceType) // User-defined class
-            {
-                HasJsonTypeInfo = true;
-                HasUtf8JsonWriter = true;
-                return $@"arrayBufferWriter ??= GetArrayBufferWriter();
-                    utf8JsonWriter ??= GetUtf8JsonWriter(arrayBufferWriter);
-                    {nameof(RedisValue)} redis_{propertySymbol.Name} = ({nameof(RedisValue)}){nameof(PooledJsonSerializer)}.{nameof(PooledJsonSerializer.GetBytes)}(arrayBufferWriter, utf8JsonWriter, {valueIdentifier}, {serializerParameterName});
-                    {setter}new {nameof(HashEntry)}({fieldIdentifier}, redis_{propertySymbol.Name});";
-            }
-
-            return null;
+            // Direct cast (numeric/string/bytes/bool) and RedisValue itself.
+            return $"{setter}new {nameof(HashEntry)}({fieldIdentifier}, ({nameof(RedisValue)}){valueIdentifier}{(IsNullable && IsValueType ? ".Value" : "")});";
         }
 
-        internal string? GetGetterContent(ContextOptions contextOptions, ISymbol propertySymbol, string serializerParameterName)
+        /// <summary>
+        ///     Builds the statement(s) that serialize a JSON property value into the shared Utf8JsonWriter.
+        /// </summary>
+        internal string GetJsonSerializeStatement(bool useSerializerContext)
+        {
+            var propertySymbol = Symbol!;
+            var valueIdentifier = $"value_{propertySymbol.Name}{(IsNullable && IsValueType ? ".Value" : "")}";
+
+            if (IsJsonElement)
+                return $"{valueIdentifier}.WriteTo(utf8JsonWriter);";
+
+            if (IsJsonDocument)
+                return $"value_{propertySymbol.Name}.RootElement.WriteTo(utf8JsonWriter);";
+
+            var fallback = useSerializerContext ? "serializerContext.Options" : "serializerOptions";
+            return $@"if (typeInfoCache.TypeInfo_{propertySymbol.Name} != null)
+                {{
+                    JsonSerializer.Serialize(utf8JsonWriter, {valueIdentifier}, typeInfoCache.TypeInfo_{propertySymbol.Name});
+                }}
+                else
+                {{
+                    JsonSerializer.Serialize(utf8JsonWriter, {valueIdentifier}, {fallback});
+                }}";
+        }
+
+        #region fast UTF-8 JSON writers
+
+        private const string FastWriterType = "global::R8.RedisHashMap.JsonFastWriter";
+
+        /// <summary>
+        ///     Name of the <c>R8.RedisHashMap.FastJsonShape</c> member describing this value, or null when the value has
+        ///     no hand-written UTF-8 emitter and must go through <c>System.Text.Json</c>.
+        /// </summary>
+        internal string? GetFastJsonShapeName()
+        {
+            if (_isStringStringDictionary)
+                return "StringDictionary";
+
+            if (_sequenceElementType == null)
+                return null;
+
+            if (_sequenceElementType.SpecialType == SpecialType.System_String)
+                return "StringSequence";
+
+            return GetIntegralWriterName(_sequenceElementType, out _) != null ? "NumberSequence" : null;
+        }
+
+        /// <summary>
+        ///     Expression invoking the hand-written emitter; evaluates to false when the emitter cannot reproduce the
+        ///     value byte-for-byte, in which case it leaves the buffer untouched for the System.Text.Json fallback.
+        /// </summary>
+        internal string? GetFastJsonWriteCall(string bufferWriterIdentifier, string valueIdentifier)
+        {
+            if (_isStringStringDictionary)
+                return $"{FastWriterType}.TryWriteStringDictionary({bufferWriterIdentifier}, {valueIdentifier})";
+
+            if (_sequenceElementType == null)
+                return null;
+
+            var elementName = _sequenceElementType.ToDisplayString();
+            var span = _isGenericList
+                ? $"(System.ReadOnlySpan<{elementName}>)System.Runtime.InteropServices.CollectionsMarshal.AsSpan({valueIdentifier})"
+                : $"new System.ReadOnlySpan<{elementName}>({valueIdentifier})";
+
+            if (_sequenceElementType.SpecialType == SpecialType.System_String)
+                return $"{FastWriterType}.TryWriteStringSequence({bufferWriterIdentifier}, {span})";
+
+            var writerName = GetIntegralWriterName(_sequenceElementType, out var keyword);
+            if (writerName == null)
+                return null;
+
+            // Enums are reinterpreted as their underlying integral type; the spans are the same size and layout.
+            var payload = _sequenceElementType.TypeKind == TypeKind.Enum
+                ? $"System.Runtime.InteropServices.MemoryMarshal.Cast<{elementName}, {keyword}>({span})"
+                : span;
+
+            return $"{FastWriterType}.{writerName}({bufferWriterIdentifier}, {payload})";
+        }
+
+        /// <summary>
+        ///     Expression producing the probe value that proves the emitter and System.Text.Json agree for this shape.
+        /// </summary>
+        internal string? GetFastJsonProbeExpression()
+        {
+            if (_isStringStringDictionary)
+                return $"{FastWriterType}.ProbeStringDictionary";
+
+            if (_sequenceElementType == null)
+                return null;
+
+            if (_sequenceElementType.SpecialType == SpecialType.System_String)
+                return _isGenericList ? $"{FastWriterType}.ProbeStringList" : $"{FastWriterType}.ProbeStringArray";
+
+            if (GetIntegralWriterName(_sequenceElementType, out _) == null)
+                return null;
+
+            var elementName = _sequenceElementType.ToDisplayString();
+            return _isGenericList
+                ? $"new System.Collections.Generic.List<{elementName}> {{ default({elementName}), ({elementName})1 }}"
+                : $"new {elementName}[] {{ default({elementName}), ({elementName})1 }}";
+        }
+
+        private static string? GetIntegralWriterName(ITypeSymbol elementType, out string? keyword)
+        {
+            var specialType = elementType.TypeKind == TypeKind.Enum && elementType is INamedTypeSymbol namedEnum
+                ? namedEnum.EnumUnderlyingType?.SpecialType ?? SpecialType.None
+                : elementType.SpecialType;
+
+            switch (specialType)
+            {
+                case SpecialType.System_SByte:
+                    keyword = "sbyte";
+                    return "TryWriteSByteSequence";
+                case SpecialType.System_Byte:
+                    keyword = "byte";
+                    return "TryWriteByteSequence";
+                case SpecialType.System_Int16:
+                    keyword = "short";
+                    return "TryWriteInt16Sequence";
+                case SpecialType.System_UInt16:
+                    keyword = "ushort";
+                    return "TryWriteUInt16Sequence";
+                case SpecialType.System_Int32:
+                    keyword = "int";
+                    return "TryWriteInt32Sequence";
+                case SpecialType.System_UInt32:
+                    keyword = "uint";
+                    return "TryWriteUInt32Sequence";
+                case SpecialType.System_Int64:
+                    keyword = "long";
+                    return "TryWriteInt64Sequence";
+                case SpecialType.System_UInt64:
+                    keyword = "ulong";
+                    return "TryWriteUInt64Sequence";
+                default:
+                    keyword = null;
+                    return null;
+            }
+        }
+
+        #endregion
+
+        /// <param name="typeInfoExpression">
+        ///     Expression yielding the cached <see cref="System.Text.Json.Serialization.Metadata.JsonTypeInfo{T}" /> for
+        ///     this property, so deserialization skips a metadata lookup per property per call. Null when unavailable.
+        /// </param>
+        internal string? GetGetterContent(ContextOptions contextOptions, ISymbol propertySymbol, string serializerParameterName, string? typeInfoExpression = null)
         {
             var setter = $"value_{propertySymbol.Name} = ";
             var typeIdentifier = $"{Type}{(IsNullable ? "?" : "")}";
@@ -364,11 +469,15 @@ namespace R8.RedisHashMap
 
             if (IsJsonDocument) return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.GetJsonDocument)}();";
 
-            if (IsValueType) // User-defined struct
-                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>({serializerParameterName});";
+            if (IsValueType || IsReferenceType) // User-defined struct or class, parsed as JSON
+            {
+                if (typeInfoExpression == null)
+                    return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>({serializerParameterName});";
 
-            if (IsReferenceType) // User-defined class
-                return $@"{setter}entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>({serializerParameterName});";
+                return $@"{setter}{typeInfoExpression} != null
+                            ? entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>({typeInfoExpression})
+                            : entry.Value.{nameof(PooledJsonSerializer.Parse)}<{Type}>({serializerParameterName});";
+            }
 
             return null;
         }
