@@ -173,25 +173,67 @@ var productEntries = CacheMapperContext.Default.Product.ToHashEntries(product);
 
 ### Benchmark Results
 
-Benchmarks performed on macOS Sequoia 15.7.2 with Apple M2 Pro (.NET 10.0):
+Serializing and deserializing 10 000 `UserDto` objects (9 properties: 6 direct, 3 JSON — `enum[]`, `string[]`,
+`Dictionary<string, string>`). The baseline is hand-written `new HashEntry[] { ... }` code with
+`JsonSerializer.SerializeToUtf8Bytes`. Lower ratio is better.
 
 ```
-BenchmarkDotNet v0.15.8, macOS Sequoia 15.7.2 (24G325) [Darwin 24.6.0]
+BenchmarkDotNet v0.15.8, macOS Tahoe 26.5.2 (25F84) [Darwin 25.5.0]
 Apple M2 Pro, 1 CPU, 12 logical and 12 physical cores
-.NET SDK 10.0.100
-  [Host]    : .NET 10.0.0 (10.0.0, 10.0.25.52411), Arm64 RyuJIT armv8.0-a
-  .NET 10.0 : .NET 10.0.0 (10.0.0, 10.0.25.52411), Arm64 RyuJIT armv8.0-a
+.NET SDK 10.0.302
+  [Host]    : .NET 10.0.10 (10.0.10, 10.0.1026.32716), Arm64 RyuJIT armv8.0-a
 
-Job=.NET 10.0  Runtime=.NET 10.0  Server=True
+Server=True
 ```
 
-| Method                                            | N     |     Mean |     Error |    StdDev | Ratio |    Gen0 | Allocated | Alloc Ratio |
-|---------------------------------------------------|-------|---------:|----------:|----------:|------:|--------:|----------:|------------:|
-| 'Write: Array + JsonSerializerOptions'            | 10000 | 3.449 ms | 0.0201 ms | 0.0157 ms |  1.00 | 62.5000 |   7.71 MB |        1.00 |
-| 'Write: Array + JsonSerializerContext'            | 10000 | 2.842 ms | 0.0154 ms | 0.0129 ms |  0.82 | 62.5000 |   7.71 MB |        1.00 |
-| 'Write: Source Generator'                         | 10000 | 3.797 ms | 0.0166 ms | 0.0139 ms |  1.10 | 62.5000 |   7.71 MB |        1.00 |
-| 'Write: Source Generator + JsonSerializerOptions' | 10000 | 3.684 ms | 0.0408 ms | 0.0361 ms |  1.07 | 62.5000 |   7.71 MB |        1.00 |
-| 'Write: Source Generator + JsonSerializerContext' | 10000 | 4.147 ms | 0.0109 ms | 0.0096 ms |  1.20 | 62.5000 |   7.71 MB |        1.00 |
+#### Write — `GetHashEntries`
+
+| Method                                          | Runtime   |     Mean | Ratio | Allocated | Alloc Ratio | Winner |
+|-------------------------------------------------|-----------|---------:|------:|----------:|------------:|:------:|
+| Array + JsonSerializerOptions *(baseline)*      | .NET 10.0 | 3.138 ms |  1.00 |   4.96 MB |        1.00 |        |
+| Array + JsonSerializerContext                   | .NET 10.0 | 2.803 ms |  0.89 |   4.96 MB |        1.00 |        |
+| **Source Generator**                            | .NET 10.0 | 1.191 ms |  0.38 |   4.43 MB |        0.89 | 🏆     |
+| **Source Generator + JsonSerializerOptions**    | .NET 10.0 | 1.187 ms |  0.38 |   4.43 MB |        0.89 | 🏆     |
+| **Source Generator + JsonSerializerContext**    | .NET 10.0 | 1.182 ms |  0.38 |   4.43 MB |        0.89 | 🏆     |
+| Array + JsonSerializerOptions *(baseline)*      | .NET 8.0  | 3.733 ms |  1.00 |   4.96 MB |        1.00 |        |
+| Array + JsonSerializerContext                   | .NET 8.0  | 3.386 ms |  0.91 |   4.96 MB |        1.00 |        |
+| **Source Generator**                            | .NET 8.0  | 1.444 ms |  0.39 |   4.43 MB |        0.89 | 🏆     |
+| **Source Generator + JsonSerializerOptions**    | .NET 8.0  | 1.466 ms |  0.39 |   4.43 MB |        0.89 | 🏆     |
+| **Source Generator + JsonSerializerContext**    | .NET 8.0  | 1.462 ms |  0.39 |   4.43 MB |        0.89 | 🏆     |
+| Array + JsonSerializerOptions *(baseline)*      | .NET 6.0  | 6.391 ms |  1.00 |   4.96 MB |        1.00 |        |
+| Array + JsonSerializerContext                   | .NET 6.0  | 5.549 ms |  0.87 |   4.96 MB |        1.00 |        |
+| **Source Generator**                            | .NET 6.0  | 2.605 ms |  0.41 |   4.43 MB |        0.89 | 🏆     |
+| **Source Generator + JsonSerializerOptions**    | .NET 6.0  | 2.615 ms |  0.41 |   4.43 MB |        0.89 | 🏆     |
+| **Source Generator + JsonSerializerContext**    | .NET 6.0  | 2.672 ms |  0.42 |   4.43 MB |        0.89 |        |
+
+🏆 marks every row that is fastest within measurement error; the three Source Generator variants are
+statistically tied on each runtime.
+
+**2.6× faster than hand-written array code on .NET 10**, with 11 % fewer allocations — and byte-for-byte identical
+output. Well-known value shapes (`string[]`, `List<string>`, enum and integral sequences,
+`Dictionary<string, string>`) are emitted by hand-written, SIMD-accelerated UTF-8 writers that bypass
+`Utf8JsonWriter` entirely. Anything they cannot reproduce exactly — a custom encoder, a naming policy, non-ASCII
+text — transparently falls back to `System.Text.Json`.
+
+#### Read — `FromHashEntries`
+
+| Method                                          | Runtime   |      Mean | Ratio | Allocated | Winner |
+|-------------------------------------------------|-----------|----------:|------:|----------:|:------:|
+| Array + JsonSerializerOptions *(baseline)*      | .NET 10.0 |  5.716 ms |  1.00 |  10.07 MB |        |
+| **Array + JsonSerializerContext**               | .NET 10.0 |  5.298 ms |  0.93 |  10.07 MB | 🏆     |
+| Source Generator                                | .NET 10.0 |  5.641 ms |  0.99 |  10.07 MB |        |
+| **Source Generator + JsonSerializerOptions**    | .NET 10.0 |  5.336 ms |  0.93 |  10.07 MB | 🏆     |
+| Source Generator + JsonSerializerContext        | .NET 10.0 |  6.739 ms |  1.18 |  10.07 MB |        |
+| Array + JsonSerializerOptions *(baseline)*      | .NET 6.0  | 11.313 ms |  1.00 |  10.07 MB |        |
+| Array + JsonSerializerContext                   | .NET 6.0  |  9.903 ms |  0.88 |  10.07 MB | 🏆     |
+| Source Generator                                | .NET 6.0  | 10.614 ms |  0.94 |  10.07 MB |        |
+| Source Generator + JsonSerializerOptions        | .NET 6.0  | 10.489 ms |  0.93 |  10.07 MB |        |
+| Source Generator + JsonSerializerContext        | .NET 6.0  | 10.332 ms |  0.91 |  10.07 MB |        |
+
+The read path is at parity with hand-written code: `JsonSerializer.Deserialize` dominates it, and both approaches
+call the same deserializer. The generator's benefit here is that you do not write or maintain the mapping code.
+
+Full results, including .NET 8 read numbers, are in [`benchmark/Benchmark_3.txt`](benchmark/Benchmark_3.txt).
 
 ## Contributing
 

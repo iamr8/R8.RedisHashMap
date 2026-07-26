@@ -28,8 +28,98 @@ public class Class1
 
     public static void Main(string[] args)
     {
-        BenchmarkRunner.Run<WriteBenchmark>();
-        // BenchmarkRunner.Run<ReadBenchmark>();
+        if (args.Length > 0 && args[0] == "--verify")
+        {
+            Verify();
+            return;
+        }
+
+        BenchmarkSwitcher.FromTypes(new[] { typeof(WriteBenchmark), typeof(ReadBenchmark) }).Run(args);
+    }
+
+    /// <summary>
+    /// Asserts that every GetHashEntries overload produces byte-identical output to hand-written
+    /// JsonSerializer.SerializeToUtf8Bytes calls, including payloads that force the fast writers to bail.
+    /// </summary>
+#pragma warning disable RS1035 // this is a console app, not an analyzer
+    private static void Verify()
+    {
+        var models = new[]
+        {
+            new Objects.UserDto
+            {
+                Id = 7, FirstName = "Arash", LastName = "Shabbeh", Email = "arash.shabbeh@gmail.com", Mobile = "09123456789", Age = 34,
+                Roles = new[] { UserRoleType.Admin, UserRoleType.User },
+                Tags = new[] { "super-admin", "moderator", "super-user", "developer" },
+                Data = new Dictionary<string, string> { ["nationality"] = "Iranian", ["countryOfResidence"] = "Turkey", ["age"] = "34" }
+            },
+            // escaping + non-ASCII: forces the hand-written writers to bail into System.Text.Json
+            new Objects.UserDto
+            {
+                Id = -1, FirstName = "Ærîal", LastName = "O'Brien <b>", Email = null, Mobile = "",
+                Age = int.MinValue,
+                Roles = Array.Empty<UserRoleType>(),
+                Tags = new[] { "a\"b", "c\\d", "é", "tab\there", null! },
+                Data = new Dictionary<string, string> { ["<key>"] = "va&lue", ["ünïcode"] = "\n\r\t", ["ok"] = null! }
+            }
+        };
+
+        var failures = 0;
+        foreach (var model in models)
+        foreach (var (label, actual) in new (string, HashEntry[])[]
+                 {
+                     ("no args", UserDtoMapperContext.Default.UserDto.GetHashEntries(model)),
+                     ("options", UserDtoMapperContext.Default.UserDto.GetHashEntries(model, UserDtoSerializerContext.Default.Options)),
+                     ("context", UserDtoMapperContext.Default.UserDto.GetHashEntries(model, UserDtoSerializerContext.Default))
+                 })
+        {
+            var expected = new List<HashEntry> { new("id", model.Id) };
+            if (model.FirstName is { Length: > 0 }) expected.Add(new HashEntry("first_name", model.FirstName));
+            if (model.LastName is { Length: > 0 }) expected.Add(new HashEntry("last_name", model.LastName));
+            if (model.Email is { Length: > 0 }) expected.Add(new HashEntry("email", model.Email));
+            if (model.Mobile is { Length: > 0 }) expected.Add(new HashEntry("mobile", model.Mobile));
+            expected.Add(new HashEntry("age", model.Age));
+            if (model.Roles is { Length: > 0 }) expected.Add(new HashEntry("roles", JsonSerializer.SerializeToUtf8Bytes(model.Roles)));
+            if (model.Tags is { Length: > 0 }) expected.Add(new HashEntry("tags", JsonSerializer.SerializeToUtf8Bytes(model.Tags)));
+            if (model.Data is { Count: > 0 }) expected.Add(new HashEntry("data", JsonSerializer.SerializeToUtf8Bytes(model.Data)));
+
+            if (actual.Length != expected.Count)
+            {
+                Console.WriteLine($"FAIL [{label}] entry count {actual.Length} != {expected.Count}");
+                failures++;
+                continue;
+            }
+
+            for (var i = 0; i < actual.Length; i++)
+            {
+                if (actual[i].Name == expected[i].Name && actual[i].Value == expected[i].Value)
+                    continue;
+
+                Console.WriteLine($"FAIL [{label}] entry {i}: got {actual[i].Name}={actual[i].Value} expected {expected[i].Name}={expected[i].Value}");
+                failures++;
+            }
+        }
+
+        // The read benchmark is only meaningful if FromHashEntries actually rebuilds the object.
+        foreach (var model in models)
+        {
+            var entries = UserDtoMapperContext.Default.UserDto.GetHashEntries(model, UserDtoSerializerContext.Default);
+            var restored = UserDtoMapperContext.Default.UserDto.FromHashEntries(entries, UserDtoSerializerContext.Default);
+
+            if (restored.Id != model.Id || restored.Age != model.Age ||
+                !string.Equals(restored.FirstName, model.FirstName, StringComparison.Ordinal) ||
+                (restored.Tags?.Length ?? 0) != model.Tags.Length ||
+                (restored.Data?.Count ?? 0) != model.Data.Count ||
+                (restored.Roles?.Length ?? 0) != model.Roles.Length)
+            {
+                Console.WriteLine($"FAIL [read] round trip mismatch for Id={model.Id}");
+                failures++;
+            }
+        }
+
+        Console.WriteLine(failures == 0 ? "VERIFY OK" : $"VERIFY FAILED ({failures})");
+        Environment.ExitCode = failures;
+#pragma warning restore RS1035
 
         // var redis = ConnectionMultiplexer.Connect("localhost");
         // var db = redis.GetDatabase();
@@ -137,7 +227,6 @@ public class WriteBenchmark
     {
         foreach (var model in models) _ = UserDtoMapperContext.Default.UserDto.GetHashEntries(model, UserDtoSerializerContext.Default);
     }
-
     // [Benchmark(Description = "Write: Reflection + JsonSerializerOptions")]
     // public void Write_Reflection()
     // {
@@ -147,7 +236,7 @@ public class WriteBenchmark
 
 [SimpleJob(RuntimeMoniker.Net60)]
 [SimpleJob(RuntimeMoniker.Net80)]
-[SimpleJob(RuntimeMoniker.Net90)]
+[SimpleJob(RuntimeMoniker.Net10_0)]
 [MemoryDiagnoser]
 [ThreadingDiagnoser]
 [GcServer(true)]
@@ -159,26 +248,94 @@ public class ReadBenchmark
     [GlobalSetup]
     public void Setup()
     {
-        hashEntries = new[]
+        // Produced by the writer so the field names match the context's snake_case naming strategy:
+        // hand-written PascalCase names would silently match no property at all.
+        hashEntries = UserDtoMapperContext.Default.UserDto.GetHashEntries(new Objects.UserDto
         {
-            new HashEntry("Id", 1),
-            new HashEntry("FirstName", (RedisValue)"Arash"),
-            new HashEntry("LastName", (RedisValue)"Shabbeh"),
-            new HashEntry("Email", (RedisValue)"arash.shabbeh@gmail.com"),
-            new HashEntry("Mobile", (RedisValue)"09123456789"),
-            new HashEntry("Age", 34),
-            new HashEntry("Roles", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { UserRoleType.Admin, UserRoleType.User }, UserDtoSerializerContext.Default.UserRoleTypeArray)),
-            new HashEntry("Tags", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new[] { "super-admin", "moderator", "super-user", "developer" }, UserDtoSerializerContext.Default.StringArray)),
-            new HashEntry("Data", (RedisValue)JsonSerializer.SerializeToUtf8Bytes(new Dictionary<string, string>
+            Id = 1,
+            FirstName = "Arash",
+            LastName = "Shabbeh",
+            Email = "arash.shabbeh@gmail.com",
+            Mobile = "09123456789",
+            Age = 34,
+            Roles = new[] { UserRoleType.Admin, UserRoleType.User },
+            Tags = new[] { "super-admin", "moderator", "super-user", "developer" },
+            Data = new Dictionary<string, string>
             {
                 ["nationality"] = "Iranian",
                 ["countryOfResidence"] = "Turkey",
                 ["age"] = "34"
-            }, UserDtoSerializerContext.Default.DictionaryStringString))
-        };
+            }
+        }, UserDtoSerializerContext.Default);
     }
 
-    [Benchmark(Baseline = true, Description = "Read: Source Generator")]
+    [Benchmark(Baseline = true, Description = "Read: Array + JsonSerializerOptions")]
+    public void Read_Array1()
+    {
+        for (var i = 0; i < N; i++)
+        {
+            int id = default, age = default;
+            string? firstName = null, lastName = null, email = null, mobile = null;
+            UserRoleType[]? roles = null;
+            string[]? tags = null;
+            Dictionary<string, string>? data = null;
+
+            foreach (var entry in hashEntries)
+                switch (entry.Name)
+                {
+                    case "id": id = (int)entry.Value; break;
+                    case "first_name": firstName = entry.Value; break;
+                    case "last_name": lastName = entry.Value; break;
+                    case "email": email = entry.Value; break;
+                    case "mobile": mobile = entry.Value; break;
+                    case "age": age = (int)entry.Value; break;
+                    case "roles": roles = JsonSerializer.Deserialize<UserRoleType[]>(((ReadOnlyMemory<byte>)entry.Value).Span, UserDtoSerializerContext.Default.Options); break;
+                    case "tags": tags = JsonSerializer.Deserialize<string[]>(((ReadOnlyMemory<byte>)entry.Value).Span, UserDtoSerializerContext.Default.Options); break;
+                    case "data": data = JsonSerializer.Deserialize<Dictionary<string, string>>(((ReadOnlyMemory<byte>)entry.Value).Span, UserDtoSerializerContext.Default.Options); break;
+                }
+
+            _ = new Objects.UserDto
+            {
+                Id = id, FirstName = firstName!, LastName = lastName!, Email = email, Mobile = mobile,
+                Age = age, Roles = roles!, Tags = tags!, Data = data!
+            };
+        }
+    }
+
+    [Benchmark(Description = "Read: Array + JsonSerializerContext")]
+    public void Read_Array2()
+    {
+        for (var i = 0; i < N; i++)
+        {
+            int id = default, age = default;
+            string? firstName = null, lastName = null, email = null, mobile = null;
+            UserRoleType[]? roles = null;
+            string[]? tags = null;
+            Dictionary<string, string>? data = null;
+
+            foreach (var entry in hashEntries)
+                switch (entry.Name)
+                {
+                    case "id": id = (int)entry.Value; break;
+                    case "first_name": firstName = entry.Value; break;
+                    case "last_name": lastName = entry.Value; break;
+                    case "email": email = entry.Value; break;
+                    case "mobile": mobile = entry.Value; break;
+                    case "age": age = (int)entry.Value; break;
+                    case "roles": roles = JsonSerializer.Deserialize(((ReadOnlyMemory<byte>)entry.Value).Span, UserDtoSerializerContext.Default.UserRoleTypeArray); break;
+                    case "tags": tags = JsonSerializer.Deserialize(((ReadOnlyMemory<byte>)entry.Value).Span, UserDtoSerializerContext.Default.StringArray); break;
+                    case "data": data = JsonSerializer.Deserialize(((ReadOnlyMemory<byte>)entry.Value).Span, UserDtoSerializerContext.Default.DictionaryStringString); break;
+                }
+
+            _ = new Objects.UserDto
+            {
+                Id = id, FirstName = firstName!, LastName = lastName!, Email = email, Mobile = mobile,
+                Age = age, Roles = roles!, Tags = tags!, Data = data!
+            };
+        }
+    }
+
+    [Benchmark(Description = "Read: Source Generator")]
     public void Read_SourceGen0()
     {
         for (var i = 0; i < N; i++) _ = UserDtoMapperContext.Default.UserDto.FromHashEntries(hashEntries);
